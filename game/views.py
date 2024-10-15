@@ -139,6 +139,7 @@ def leaveRoom(request):
             
             player.is_protected = False
             player.skip_turn = False
+            player.night_skip = 0
             
             player.eliminated_on_night = 0
             player.revived_on_night = 0
@@ -153,7 +154,7 @@ def leaveRoom(request):
             # send_message_to_lobby_task.delay(code, user)
             
             # delete game room if last player in the room left, if Game has ended, it means it is completed and there is no need to delete it
-            if Game.objects.filter(players=None) and Game.has_ended is False:
+            if Game.objects.filter(players=None) and game.has_ended is False:
                 game.delete()
             
         else:
@@ -400,11 +401,16 @@ def selectTarget(request):
         if target.is_protected == False:
             target.eliminated_on_night = int(game.night_count)  
             target.alive = False
+            target.save()
         else:
             # target will live but will render mangangaso ineffective next night
-            mangangaso = game.players.filter(alive=True, role='mangangaso').first()
+            mangangaso = game.players.filter(Q(alive=True) & Q(role='mangangaso')).first()
             if mangangaso:
+                print('current night: ', int(game.night_count))
+                print('mangangaso: ', mangangaso)
+                print('mangangaso night skip: ', mangangaso.night_skip)
                 mangangaso.skip_turn = True
+                mangangaso.night_skip = int(game.night_count) + 2
                 mangangaso.save()
             
         # need to check if players with these roles are alive, if true then change role to the corresponding role, 
@@ -447,6 +453,7 @@ def selectTarget(request):
         if target.alive == False:
             target.revived_on_night = int(game.night_count)
             target.alive = True
+            #target.save()
         else:
             pass
             
@@ -537,6 +544,9 @@ def assignRole(players, aswang_limit):
     # there will be race condition issues here so try to come up with another way to assign roles
     roles = ['mangangaso', 'aswang', 'babaylan', 'manghuhula']
     aswang_roles = ['aswang - manduguro', 'aswang - manananggal', 'aswang - berbalang']
+    
+    # temp aswang arrays
+    #aswang_roles = ['aswang - manananggal']
     
     for player in players:
         
