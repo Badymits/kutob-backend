@@ -15,7 +15,7 @@ channel_layer = get_channel_layer()
 
 @shared_task
 def send_role(player,code,role):
-    print('aaaa')
+
     # sends message to unqiue channel where user is the only one to receive this message
     
     async_to_sync(channel_layer.group_send)(
@@ -117,16 +117,17 @@ def phaseCountdown(code):
             sleep(1)
             countdown -= 1
         
-        switchToNextPhase.delay(code)
+        phaseInitialize.delay(code)
+    else:
+        return None
 
-# changes UI in frontend. Here we sort of "initialize" the phase, what are the things needed in each phase
+# changes UI in frontend. Here we sort of "initialize" the phase, what are the things needed in each phase that is then reflected in the frontend
 @shared_task
-def switchToNextPhase(code):
+def phaseInitialize(code):
 
     game = Game.objects.get(room_code=code)
     phase = int(game.game_phase) + 1
-    
-    mangangaso_night_skip = None
+
         
     # the player select target phase, if mangangaso is not alive, then the aswang will be the first player to select their target
     if phase == 3:
@@ -134,7 +135,7 @@ def switchToNextPhase(code):
         player_list = game.players.all()
         
         # refresh the is_protected state for the following night
-        new_players_state_list = refreshStatePlayers(player_list)
+        new_players_state_list = refreshPlayerState(player_list)
         
         # serialize the player list then send to frontend
         current_players = PlayersInLobby(new_players_state_list, many=True).data
@@ -210,6 +211,8 @@ def switchToNextPhase(code):
         
         current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         print('current player count: ', current_players.count())
+        
+        # the player count should consist of only aswang
         if int(current_players.count()) == 1 and current_players.filter(
                 Q(role='aswang - manduguro') | 
                 Q(role='aswang - manananggal') | 
@@ -219,6 +222,17 @@ def switchToNextPhase(code):
             game.winners = 'Mga Aswang'
             
             phase = 8
+            async_to_sync(channel_layer.group_send)(
+                f'room_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'announce_winners',
+                        'winners': 'Mga Aswang',
+                        'message': 'There are no more players left aside from the aswang, Aswang wins!'
+                    }
+                }
+            )
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -379,77 +393,52 @@ def switchToNextPhase(code):
     # voting result phase, players will know if they eliminated the right player
     elif phase == 8:
         
-        if game.winners == 'Mga Aswang':
-            
-            async_to_sync(channel_layer.group_send)(
-                f'room_{code}',
-                {
-                    'type': 'send_message',
-                    'data': {
-                        'type': 'announce_winners',
-                        'winners': 'Mga Aswang',
-                        'message': 'There are no more players left aside from the aswang, Aswang wins!'
-                    }
-                }
-            )
-            async_to_sync(channel_layer.group_send)(
-                f'room_{code}',
-                {
-                    'type': 'send_message',
-                    'data': {
-                        'type': 'next_phase',
-                        'phase': phase
-                    }
-                }
-            )
-            game.game_phase = phase
-            game.save()
-            phaseCountdown.delay(code)
-            
-        else:
-            # get votes related to game
-            players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-            print(players)
-            
-            vote_list = []
-            
-            # adding vote list to check most voted player
-            for i in players.iterator():
-                if i.vote_target is not None: # to ignore players who have not voted during this phase
-                    vote_list.append(i.vote_target.username)
-            
-            result = most_common(vote_list)
-            print('highest vote is: ', result)
+        # get votes related to game
+        players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
+        print(players)
+        
+        vote_list = []
+        
+        # adding vote list to check most voted player
+        for i in players.iterator():
+            if i.vote_target is not None: # to ignore players who have not voted during this phase
+                vote_list.append(i.vote_target.username)
+        
+        result = most_common(vote_list)
+        print('highest vote is: ', result)
 
+        
+        if result != 'tie':
             
-            if result != 'tie':
+            current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
+            print('current player count: ', current_players.count())
+            
+            # if aswang players are the only players left in the game, send to last phase
+            if int(current_players.count()) == 1 and current_players.filter(
+                    Q(role='aswang - manduguro') | 
+                    Q(role='aswang - manananggal') | 
+                    Q(role='aswang - berbalang')
+                    ).exists():
+                # send to last phase, announcement shit:
+                game.winners = 'Mga Aswang'
                 
-                current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-                print('current player count: ', current_players.count())
-                if int(current_players.count()) == 1 and current_players.filter(
-                        Q(role='aswang - manduguro') | 
-                        Q(role='aswang - manananggal') | 
-                        Q(role='aswang - berbalang')
-                        ).exists():
-                    # send to last phase, announcement shit:
-                    game.winners = 'Mga Aswang'
-                    
-                    phase = 8
-                    async_to_sync(channel_layer.group_send)(
-                        f'room_{code}',
-                        {
-                            'type': 'send_message',
-                            'data': {
-                                'type': 'next_phase',
-                                'phase': phase
-                            }
+                phase = 8
+                async_to_sync(channel_layer.group_send)(
+                    f'room_{code}',
+                    {
+                        'type': 'send_message',
+                        'data': {
+                            'type': 'next_phase',
+                            'phase': phase
                         }
-                    )
-                    game.game_phase = phase
-                    game.has_ended = True
-                    game.save()
-                    phaseCountdown.delay(code)
-                    
+                    }
+                )
+                game.game_phase = phase
+                game.has_ended = True
+                game.save()
+                phaseCountdown.delay(code)
+            else:
+                
                 try:
                     player = get_object_or_404(Player, username=result)
                     player.eliminated_from_game = True
@@ -457,6 +446,7 @@ def switchToNextPhase(code):
                 except:
                     player = ''
                 
+                # announce whether the eliminated player is the aswang or not
                 if player.role == 'aswang - manduguro' or player.role == 'aswang - manananggal' or player.role == 'aswang - berbalang':
                     data = {
                         'type': 'is_aswang',
@@ -464,46 +454,47 @@ def switchToNextPhase(code):
                         'message': 'The player eliminated IS the aswang'
                     }
                     
-                    game.winners = 'Mga Taumbayan'
-                    # send to winning phase (which is next phase, phase 9)
+                    game.winners = 'Mga Taumbayan' # send to winning phase (which is next phase, phase 9)
+                    
 
-                else:
+                else: 
                     data = {
                         'type': 'not_aswang',
                         'eliminated': result,
-                        'message': 'The player eliminated is NOT the aswang'
+                        'message': 'The player eliminated is NOT the aswang' # back to phase 2
                     }
-                    #back to phase 2
 
-            else:
-                data = {
-                    'type': 'vote_tie',
-                    'message': 'There was a TIE among players, no one will be eliminated'
+        # in an event of a tie, send appropriate message to users
+        else:
+            data = {
+                'type': 'vote_tie',
+                'message': 'There was a TIE among players, no one will be eliminated'
+            }
+            
+        async_to_sync(channel_layer.group_send)(
+            f'room_{code}',
+            {
+                'type': 'send_message',
+                'data': data
+            }
+        )
+        async_to_sync(channel_layer.group_send)(
+            f'room_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'next_phase',
+                    'phase': phase
                 }
-                
-            async_to_sync(channel_layer.group_send)(
-                f'room_{code}',
-                {
-                    'type': 'send_message',
-                    'data': data
-                }
-            )
-            async_to_sync(channel_layer.group_send)(
-                f'room_{code}',
-                {
-                    'type': 'send_message',
-                    'data': {
-                        'type': 'next_phase',
-                        'phase': phase
-                    }
-                }
-            )
-            game.game_phase = phase
-            game.save()
-            phaseCountdown.delay(code)
+            }
+        )
+        game.game_phase = phase
+        game.save()
+        phaseCountdown.delay(code)
         
         
     elif phase == 9:
+        # go back to phase 2 to continue the game
         if game.winners is None:
             phase = 2
             
@@ -552,8 +543,9 @@ def switchToNextPhase(code):
             #game.completed = date.now
             game.save()
         
-         # not calling phase countdown since the game is already finished
+        # not calling phase countdown since the game is already finished
     
+    # applies to phase 2, 4, and 6 that doesn't require any data
     else:
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
@@ -570,16 +562,23 @@ def switchToNextPhase(code):
         game.save()
         phaseCountdown.delay(code)
 
-#
+# vote counting function
 def most_common(lst):
     
+    # returns 2 items stored in a list (it returns the top 2 candidates with highest votes)
     data = Counter(lst).most_common(2)
     
+    # if no one votes
     if len(data) == 0:
         return 'tie'
+    
+    # if at least 1 vote, continue with vote counting
     elif len(data) >= 1:
-        first_item = data[0]
         
+        # get first index
+        first_item = data[0] 
+        
+        # if more than 2 players are nominated, get the second index of data 
         if len(data) > 1:
             second_item = data[1]
             print('first item count: ', first_item[1], 'second item count: ', second_item[1])
@@ -598,13 +597,14 @@ def most_common(lst):
         return 'tie'
     
 
-# each night the vote target and the is protected status 
+# each night the vote target and the is_protected status 
 # of all players that are still alive and not eliminated will be reset
-def refreshStatePlayers(players):
+def refreshPlayerState(players):
     
     new_player_list = []
     
     for player in players:
+        
         if player.alive == True and player.eliminated_from_game == False:
             if player.is_protected == True:
                 player.is_protected = False
@@ -612,7 +612,8 @@ def refreshStatePlayers(players):
             player.vote_target = None
             player.save()
             new_player_list.append(player)
-        # this applies to the players who were eliminated from the game    
+            
+        # this applies to the players who were eliminated from the game to not interfere with the vote count   
         player.vote_target = None
         player.save()
             
