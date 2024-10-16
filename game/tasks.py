@@ -208,8 +208,22 @@ def phaseInitialize(code):
     # day announcement phase
     elif phase == 5:
         # check player count, if there are no more players aside from the aswang, then they win, else, the game continues to dicussion phase
-        
         current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
+        
+        
+        # execute night targets if there are any
+        for player in current_players:
+            if player.night_target is not None:
+                if (player.night_target.role == 'babaylan' or player.night_target.role == 'manghuhula') and player.night_target.revived_on_night != game.night_count: # not healed on the night they were killed
+                    print('player target: ', player.night_target.username, ' role: ', player.night_target.role)
+                    
+                    player.night_target.alive = False
+                    player.night_target.eliminated_on_night = int(game.night_count)
+                    player.night_target.save()
+                    
+                    player.night_target = None
+                    player.save()
+        
         print('current player count: ', current_players.count())
         
         # the player count should consist of only aswang
@@ -410,8 +424,13 @@ def phaseInitialize(code):
         
         if result != 'tie':
             
+            # remove from game
+            player_eliminated = Player.objects.get(username=result)
+            player_eliminated.eliminated_from_game = True
+            player_eliminated.save()
+            
             current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-            print('current player count: ', current_players.count())
+            print('current player: ', current_players)
             
             # if aswang players are the only players left in the game, send to last phase
             if int(current_players.count()) == 1 and current_players.filter(
@@ -608,8 +627,10 @@ def refreshPlayerState(players):
         if player.alive == True and player.eliminated_from_game == False:
             if player.is_protected == True:
                 player.is_protected = False
-
+                
+            player.night_target = None
             player.vote_target = None
+            
             player.save()
             new_player_list.append(player)
             
