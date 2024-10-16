@@ -49,11 +49,12 @@ class Player(models.Model):
     night_skip               = models.IntegerField(default=0, null=True, blank=True) # instances where the manananggal renders mangangaso ineffective
     execute                  = models.CharField(max_length=255, null=True, blank=True) # 
     
+    # for aswang roles
     night_target             = models.ForeignKey('self', null=True, blank=True, related_name='target_of_the_night' ,on_delete=models.SET_NULL)
     
     # to track player status for announcements
-    eliminated_on_night      = models.IntegerField(null=True, blank=True)
-    revived_on_night         = models.IntegerField(null=True, blank=True)
+    eliminated_on_night      = models.IntegerField(default=0, null=True, blank=True)
+    revived_on_night         = models.IntegerField(default=0, null=True, blank=True)
     
     # voting related fields
     vote_target              = models.ForeignKey('self', null=True, blank=True, related_name='voted_player', on_delete=models.SET_NULL) 
