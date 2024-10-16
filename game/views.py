@@ -8,7 +8,7 @@ from django.db.models import Q
 from .models import Game, Player
 from .serializers import GameSerializer
 from game.serializers import PlayersInLobby 
-from .tasks import send_role, phaseCountdown, switchToNextPhase
+from .tasks import send_role, phaseCountdown, phaseInitialize
 from django.core.cache import cache
 
 import math
@@ -151,7 +151,6 @@ def leaveRoom(request):
             player.save() 
             
             context['message'] = 'Left the room'
-            # send_message_to_lobby_task.delay(code, user)
             
             # delete game room if last player in the room left, if Game has ended, it means it is completed and there is no need to delete it
             if Game.objects.filter(players=None) and game.has_ended is False:
@@ -368,7 +367,7 @@ def selectTarget(request):
     
     
     if role == 'mangangaso':
-        next_role = searchAswangRole(game=game, role='mangangaso')
+        next_role = searchAswangRole(game=game)
         target.is_protected = True
         print(next_role)
         role = next_role
@@ -385,8 +384,8 @@ def selectTarget(request):
         
         # need to check if players with these roles are alive, if true then change role to the corresponding role, 
         # if both are not alive, then skip role and change phase 
-        role_babaylan = checkifBabaylanAlive(game=game)
-        role_manghuhula = checkifManghuhulaAlive(game=game)
+        role_babaylan = checkRoleStatus(game=game, role='babaylan')
+        role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
         
         if role_babaylan == True:
             role = 'babaylan'
@@ -416,8 +415,8 @@ def selectTarget(request):
         # need to check if players with these roles are alive, if true then change role to the corresponding role, 
         # if both are not alive, then skip role and change phase 
         
-        role_babaylan = checkifBabaylanAlive(game=game)
-        role_manghuhula = checkifManghuhulaAlive(game=game)
+        role_babaylan = checkRoleStatus(game=game, role='babaylan')
+        role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
         
         
         if role_babaylan == True:
@@ -437,8 +436,8 @@ def selectTarget(request):
             pass
         target.save()
         
-        role_babaylan = checkifBabaylanAlive(game=game)
-        role_manghuhula = checkifManghuhulaAlive(game=game)
+        role_babaylan = checkRoleStatus(game=game, role='babaylan')
+        role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
         
         if role_babaylan == True:
             role = 'babaylan'
@@ -457,8 +456,8 @@ def selectTarget(request):
         else:
             pass
             
-        role_manghuhula = checkifManghuhulaAlive(game=game)
-        print('manghuhula alive?', role_manghuhula)
+        role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
+        
         if role_manghuhula == True:
             role = 'manghuhula'
         else:
@@ -503,7 +502,7 @@ def selectTarget(request):
         # change phase
         print('what')
         context['message'] = 'night done'
-        switchToNextPhase.delay(code)
+        phaseInitialize.delay(code)
         return Response(context, status=200)
     
     
@@ -530,7 +529,6 @@ def votePlayer(request):
             
     context['message'] = 'Nice vote!' # lmao
     return Response(context, status=201)
-
 
 
 
@@ -586,7 +584,7 @@ def assignRole(players, aswang_limit):
     return player_role_dict
     
 
-def searchAswangRole(game, role):
+def searchAswangRole(game):
     
     players = game.players.all()
     
@@ -605,37 +603,62 @@ def searchAswangRole(game, role):
                 return 'aswang - berbalang'
     else:
         return None
-                
 
 # checks the alive players' role, since after aswang its either babaylan or manghuhula, whichever one is alive (can be both)
-def checkifBabaylanAlive(game):
-    try:
+def checkRoleStatus(game, role):
+    try: 
         alive = game.players.filter(
             Q(alive=True) & 
             Q(eliminated_from_game=False) &
-            Q(role='babaylan')
+            Q(role=role)
         ).first()
-        print('babaylan found')
-        if alive:
-            return True
-        else:
-            return False
         
+        if role == 'babaylan':
+            if alive:
+                return True
+            else:
+                return False
+            
+        elif role == 'manghuhula':
+            if alive:
+                return True
+            else:
+                return False
+            
+        else:
+            return None
     except:
         return None
+
+# checks the alive players' role, since after aswang its either babaylan or manghuhula, whichever one is alive (can be both)
+# def checkifBabaylanAlive(game):
+#     try:
+#         alive = game.players.filter(
+#             Q(alive=True) & 
+#             Q(eliminated_from_game=False) &
+#             Q(role='babaylan')
+#         ).first()
+#         print('babaylan found')
+#         if alive:
+#             return True
+#         else:
+#             return False
         
-def checkifManghuhulaAlive(game):
+#     except:
+#         return None
+        
+# def checkifManghuhulaAlive(game):
     
-    try:
-        alive = game.players.filter(
-            Q(alive=True) & 
-            Q(eliminated_from_game=False) &
-            Q(role='manghuhula')
-        ).first()
-        print('manghuhula found')
-        if alive:
-            return True
-        else:
-            return False
-    except: 
-        return None
+#     try:
+#         alive = game.players.filter(
+#             Q(alive=True) & 
+#             Q(eliminated_from_game=False) &
+#             Q(role='manghuhula')
+#         ).first()
+#         print('manghuhula found')
+#         if alive:
+#             return True
+#         else:
+#             return False
+#     except: 
+#         return None
