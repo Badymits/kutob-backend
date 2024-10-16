@@ -140,6 +140,7 @@ def leaveRoom(request):
             player.is_protected = False
             player.skip_turn = False
             player.night_skip = 0
+            player.night_target = None
             
             player.eliminated_on_night = 0
             player.revived_on_night = 0
@@ -335,7 +336,7 @@ def startGameSession(request):
             }
         )
         
-        # each player in team will receive their role in the frontend, only visible to them 
+        # each player in team will receive their respective role in the frontend
         for player, role in playerDict.items():
             print(player, role)
             send_role.delay(player, code, role)
@@ -356,28 +357,34 @@ def selectTarget(request):
     context = {}
     
     channel_layer = get_channel_layer()
-    
-    player = request.data['player']
+
+
     code = request.data['code']
     role = request.data['role']
     
     
     game = get_object_or_404(Game, room_code=code)
     target = Player.objects.get(username=request.data['target'])
+    player = Player.objects.get(username=request.data['player']) # refers to self
     
     
     if role == 'mangangaso':
         next_role = searchAswangRole(game=game)
         target.is_protected = True
+        target.save()
         print(next_role)
         role = next_role
         
     
     elif role == 'aswang - manduguro':
-        target.alive = False  
-        target.eliminated_on_night = int(game.night_count)  
-        target.save()
-        
+
+        if target.role == 'babaylan' or target.role == 'manghuhula':
+            player.night_target = target
+            player.save()
+        else:
+            target.alive = False
+            target.eliminated_on_night = int(game.night_count)
+            target.save()
         
         # only if there is 1 aswang in the game, immediately set
         # but if there are two aswangs, they will select target simultaneously
@@ -392,26 +399,46 @@ def selectTarget(request):
         elif role_manghuhula == True:
             role = 'manghuhula'
         else:
+            if player.night_target is not None:
+                
+                player.night_target.alive = False
+                player.night_target.save()
+                
+                player.night_target = None
+                player.save()
+                
             role = None
         
     
     elif role == 'aswang - manananggal':
         
+        
         if target.is_protected == False:
-            target.eliminated_on_night = int(game.night_count)  
-            target.alive = False
-            target.save()
-        else:
+            # for reference in phase 5/ day announcement phase
+            if target.role == 'babaylan' or target.role == 'manghuhula':
+                player.night_target = target
+                
+                player.save()
+                
+            # if its a different role, eliminate player
+            else:
+                target.alive = False
+                target.eliminated_on_night = int(game.night_count)
+                target.save()
+            
+        elif target.is_protected == True:
             # target will live but will render mangangaso ineffective next night
             mangangaso = game.players.filter(Q(alive=True) & Q(role='mangangaso')).first()
             if mangangaso:
                 print('current night: ', int(game.night_count))
                 print('mangangaso: ', mangangaso)
                 print('mangangaso night skip: ', mangangaso.night_skip)
-                mangangaso.skip_turn = True
-                mangangaso.night_skip = int(game.night_count) + 2
-                mangangaso.save()
-            
+                
+                player_obj = mangangaso
+                player_obj.skip_turn = True
+                player_obj.night_skip = int(game.night_count) + 2
+                player_obj.save()
+                
         # need to check if players with these roles are alive, if true then change role to the corresponding role, 
         # if both are not alive, then skip role and change phase 
         
@@ -424,18 +451,24 @@ def selectTarget(request):
         elif role_manghuhula == True:
             role = 'manghuhula'
         else:
+            if player.night_target is not None:
+                player.night_target.alive = False
+                player.night_target.save()
             role = None
 
         
     elif role == 'aswang - berbalang':
         # can only eliminate unprotected players
         if target.is_protected == False:
-            target.eliminated_on_night = int(game.night_count)  
-            target.alive = False
+            if target.role == 'babaylan' or target.role == 'manghuhula':
+                player.night_target = target
+                player.save()
+            else:
+                target.eliminated_on_night = int(game.night_count)  
+                target.alive = False
         else:
             pass
         target.save()
-        
         role_babaylan = checkRoleStatus(game=game, role='babaylan')
         role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
         
@@ -452,7 +485,7 @@ def selectTarget(request):
         if target.alive == False:
             target.revived_on_night = int(game.night_count)
             target.alive = True
-            #target.save()
+            target.save()
         else:
             pass
             
@@ -466,9 +499,8 @@ def selectTarget(request):
         
     elif role == 'manghuhula':
         role_of_target = target.role
-        #context['role_of_target'] = role_of_target
         async_to_sync(channel_layer.group_send)(
-            f'{player}_{code}',
+            f'{player.username}_{code}',
             {
                 'type': 'send_message',
                 'data': {
@@ -479,7 +511,6 @@ def selectTarget(request):
         )
         role = None
     
-    target.save()
     
     if role is not None:
         # we immediately go to next phase which is dicussion or voting
@@ -541,10 +572,10 @@ def assignRole(players, aswang_limit):
     # initialize roles
     # there will be race condition issues here so try to come up with another way to assign roles
     roles = ['mangangaso', 'aswang', 'babaylan', 'manghuhula']
-    aswang_roles = ['aswang - manduguro', 'aswang - manananggal', 'aswang - berbalang']
+    #aswang_roles = ['aswang - manduguro', 'aswang - manananggal', 'aswang - berbalang']
     
     # temp aswang arrays
-    #aswang_roles = ['aswang - manananggal']
+    aswang_roles = ['aswang - manananggal']
     
     for player in players:
         
