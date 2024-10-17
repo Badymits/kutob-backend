@@ -207,24 +207,22 @@ def phaseInitialize(code):
         
     # day announcement phase
     elif phase == 5:
-        # check player count, if there are no more players aside from the aswang, then they win, else, the game continues to dicussion phase
-        current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-        
-        
+
         # execute night targets if there are any
-        for player in current_players:
-            if player.night_target is not None:
-                if (player.night_target.role == 'babaylan' or player.night_target.role == 'manghuhula') and player.night_target.revived_on_night != game.night_count: # not healed on the night they were killed
-                    print('player target: ', player.night_target.username, ' role: ', player.night_target.role)
-                    
-                    player.night_target.alive = False
-                    player.night_target.eliminated_on_night = int(game.night_count)
-                    player.night_target.save()
-                    
-                    player.night_target = None
-                    player.save()
-        
+        for player in game.players.filter(Q(alive=True) & Q(eliminated_from_game=False)):
+            
+            if player.night_target:
+                player_obj = player
+                player_obj.alive = False
+                player.eliminated_on_night = int(game.night_count)
+                player_obj.save()
+
+        """
+            filtered list does not refresh when declared before for loop, this should take place after changes has been made
+        """
+        current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         print('current player count: ', current_players.count())
+        print('current players: ', current_players)
         
         # the player count should consist of only aswang
         if int(current_players.count()) == 1 and current_players.filter(
@@ -441,21 +439,14 @@ def phaseInitialize(code):
                 # send to last phase, announcement shit:
                 game.winners = 'Mga Aswang'
                 
+                data = {
+                    'type': 'announce_winners',
+                    'winners': 'Mga Aswang',
+                    'message': 'There are no more players left aside from the aswang, Aswang wins!'
+                }
+                
                 phase = 8
-                async_to_sync(channel_layer.group_send)(
-                    f'room_{code}',
-                    {
-                        'type': 'send_message',
-                        'data': {
-                            'type': 'next_phase',
-                            'phase': phase
-                        }
-                    }
-                )
-                game.game_phase = phase
-                game.has_ended = True
-                game.save()
-                phaseCountdown.delay(code)
+                
             else:
                 
                 try:
@@ -561,6 +552,8 @@ def phaseInitialize(code):
             game.has_ended = True
             #game.completed = date.now
             game.save()
+            
+            return True
         
         # not calling phase countdown since the game is already finished
     
