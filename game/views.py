@@ -66,6 +66,8 @@ def createRoom(request):
     
     return Response(context)
 
+
+
 @api_view(['POST'])
 def joinRoom(request):
     
@@ -74,7 +76,7 @@ def joinRoom(request):
     player = request.data['player']
     code = request.data['code']
     
-
+    print(request.session)
     # search game obj
     try:
         game = Game.objects.get(room_code=code)
@@ -140,7 +142,7 @@ def leaveRoom(request):
             player.is_protected = False
             player.skip_turn = False
             player.night_skip = 0
-            player.night_target = None
+            player.night_target = False
             
             player.eliminated_on_night = 0
             player.revived_on_night = 0
@@ -153,8 +155,8 @@ def leaveRoom(request):
             
             context['message'] = 'Left the room'
             
-            # delete game room if last player in the room left, if Game has ended, it means it is completed and there is no need to delete it
-            if Game.objects.filter(players=None) and game.has_ended is False:
+            # delete game room if last player in the room left, 
+            if Game.objects.filter(players=None):
                 game.delete()
             
         else:
@@ -184,8 +186,16 @@ def updateRoomSettings(request):
         
         if request.data['update'] == 'update_room':
             
-            # check first if players in room are more than the requested limit
-            # if it is, then return message saying they cannot change, else, proceed with logic
+            """ 
+            
+            check first if players in room are more than the requested limit
+            if it is, then return message saying they cannot change, else, proceed with logic
+            
+            5-7 players == 1 aswang limit
+            8-9 players == 2 aswang limit
+            10 players == 3 aswang limit
+            
+            """
             if player_count > request.data['limit']:
             
                 data = {
@@ -207,8 +217,8 @@ def updateRoomSettings(request):
                 context['message'] = 'Cannot remove other players that joined the room'
                 return Response(data=data,status=400) 
 
-            # if the aswang limit is set to 3 and owner decides to change room limit, change aswang limit too
-            # convert field to int for it to work
+
+
             if int(game.aswang_limit) == 3 and  ( 5 <= request.data['limit'] <= 7):
                 new_aswang_limit = int(game.aswang_limit) - 2
                 payload = {
@@ -246,6 +256,7 @@ def updateRoomSettings(request):
                 }
                 message = 'Game settings saved, changed aswang limit due to player limit'
             
+            
             else:
                 payload = {
                     'room_limit' : request.data['limit'],
@@ -263,6 +274,8 @@ def updateRoomSettings(request):
             message = 'Game settings updated'
             serializer = GameSerializer(game, data=payload, partial=True)
             update = 'aswang'
+
+
 
         if serializer.is_valid():
             
@@ -294,6 +307,7 @@ def updateRoomSettings(request):
                 }
             )
             return Response(status=200, data=serializer.data)
+        
         
         context['message'] = 'Not saved'
         return Response(status=400)
@@ -345,6 +359,8 @@ def startGameSession(request):
         game.save()
         context['message'] = 'OK'
         return Response(context, status=200)
+    
+    
     else:
         context['message'] = 'Game not found'
         return Response(context, status=400)
@@ -379,18 +395,23 @@ def selectTarget(request):
     elif role == 'aswang - manduguro':
 
         if target.role == 'babaylan' or target.role == 'manghuhula':
-            player.night_target = target
-            player.save()
+            player_obj = target
+            player_obj.night_target = True
+            player_obj.save()
         else:
             target.alive = False
             target.eliminated_on_night = int(game.night_count)
             target.save()
         
-        # only if there is 1 aswang in the game, immediately set
-        # but if there are two aswangs, they will select target simultaneously
+        """
+        only if there is 1 aswang in the game, immediately set
+        but if there are two aswangs, they will select target simultaneously
         
-        # need to check if players with these roles are alive, if true then change role to the corresponding role, 
-        # if both are not alive, then skip role and change phase 
+        need to check if players with these roles are alive, if true then change role to the corresponding role, 
+        if both are not alive, then skip role and change phase 
+        
+        """
+        
         role_babaylan = checkRoleStatus(game=game, role='babaylan')
         role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
         
@@ -398,15 +419,7 @@ def selectTarget(request):
             role = 'babaylan'
         elif role_manghuhula == True:
             role = 'manghuhula'
-        else:
-            if player.night_target is not None:
-                
-                player.night_target.alive = False
-                player.night_target.save()
-                
-                player.night_target = None
-                player.save()
-                
+        else:    
             role = None
         
     
@@ -416,9 +429,9 @@ def selectTarget(request):
         if target.is_protected == False:
             # for reference in phase 5/ day announcement phase
             if target.role == 'babaylan' or target.role == 'manghuhula':
-                player.night_target = target
-                
-                player.save()
+                player_obj = target
+                player_obj.night_target = True
+                player_obj.save()
                 
             # if its a different role, eliminate player
             else:
@@ -429,18 +442,17 @@ def selectTarget(request):
         elif target.is_protected == True:
             # target will live but will render mangangaso ineffective next night
             mangangaso = game.players.filter(Q(alive=True) & Q(role='mangangaso')).first()
-            if mangangaso:
-                print('current night: ', int(game.night_count))
-                print('mangangaso: ', mangangaso)
-                print('mangangaso night skip: ', mangangaso.night_skip)
-                
+            
+            if mangangaso: 
                 player_obj = mangangaso
                 player_obj.skip_turn = True
                 player_obj.night_skip = int(game.night_count) + 2
                 player_obj.save()
-                
-        # need to check if players with these roles are alive, if true then change role to the corresponding role, 
-        # if both are not alive, then skip role and change phase 
+
+        """
+            need to check if players with these roles are alive, if true then change role to the corresponding role, 
+            if both are not alive, then skip role and change phase 
+        """
         
         role_babaylan = checkRoleStatus(game=game, role='babaylan')
         role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
@@ -451,9 +463,6 @@ def selectTarget(request):
         elif role_manghuhula == True:
             role = 'manghuhula'
         else:
-            if player.night_target is not None:
-                player.night_target.alive = False
-                player.night_target.save()
             role = None
 
         
@@ -461,8 +470,9 @@ def selectTarget(request):
         # can only eliminate unprotected players
         if target.is_protected == False:
             if target.role == 'babaylan' or target.role == 'manghuhula':
-                player.night_target = target
-                player.save()
+                player_obj = target
+                player_obj.night_target = True
+                player_obj.save()
             else:
                 target.eliminated_on_night = int(game.night_count)  
                 target.alive = False
@@ -482,6 +492,15 @@ def selectTarget(request):
 
     elif role == 'babaylan':
         
+        # check if self or manghuhula is targeted for the night
+        if player.night_target or target.night_target:
+            player_obj = target
+            player_obj.night_target = False
+            #player_obj.revived_on_night = int(game.night_count)
+            player_obj.save()
+        
+        
+        # refers to the target they selected, can be themselves
         if target.alive == False:
             target.revived_on_night = int(game.night_count)
             target.alive = True
@@ -542,13 +561,14 @@ def votePlayer(request):
     
     context = {}
     
-    # retrieve objects from other classes first
-    print(request.data['vote_target'])
+   
     try:
         player_that_voted = get_object_or_404(Player, username=request.data['player'])
         vote_target = get_object_or_404(Player, username=request.data['vote_target'])
+        
         game = get_object_or_404(Game, room_code=request.data['code'])
-        print(game)
+        #vote_target = game.players.filter(Q(game=game) & Q(username=request.data['vote_target'])).first()
+        
     except:
         
         context['message'] = 'Not found'
@@ -575,7 +595,7 @@ def assignRole(players, aswang_limit):
     #aswang_roles = ['aswang - manduguro', 'aswang - manananggal', 'aswang - berbalang']
     
     # temp aswang arrays
-    aswang_roles = ['aswang - manananggal']
+    aswang_roles = ['aswang - berbalang']
     
     for player in players:
         
@@ -660,36 +680,3 @@ def checkRoleStatus(game, role):
             return None
     except:
         return None
-
-# checks the alive players' role, since after aswang its either babaylan or manghuhula, whichever one is alive (can be both)
-# def checkifBabaylanAlive(game):
-#     try:
-#         alive = game.players.filter(
-#             Q(alive=True) & 
-#             Q(eliminated_from_game=False) &
-#             Q(role='babaylan')
-#         ).first()
-#         print('babaylan found')
-#         if alive:
-#             return True
-#         else:
-#             return False
-        
-#     except:
-#         return None
-        
-# def checkifManghuhulaAlive(game):
-    
-#     try:
-#         alive = game.players.filter(
-#             Q(alive=True) & 
-#             Q(eliminated_from_game=False) &
-#             Q(role='manghuhula')
-#         ).first()
-#         print('manghuhula found')
-#         if alive:
-#             return True
-#         else:
-#             return False
-#     except: 
-#         return None
