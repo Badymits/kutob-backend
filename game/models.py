@@ -49,8 +49,10 @@ class Player(models.Model):
     night_skip               = models.IntegerField(default=0, null=True, blank=True) # instances where the manananggal renders mangangaso ineffective
     execute                  = models.CharField(max_length=255, null=True, blank=True) # 
     
+    # place field time_sInce_last_game: wherein users who haven't played a game within 1hr will be deleted immediately by using celery-beat
+    
     # for aswang roles
-    night_target             = models.ForeignKey('self', null=True, blank=True, related_name='target_of_the_night' ,on_delete=models.SET_NULL)
+    night_target             = models.BooleanField(default=False, null=True, blank=True)
     
     # to track player status for announcements
     eliminated_on_night      = models.IntegerField(default=0, null=True, blank=True)
