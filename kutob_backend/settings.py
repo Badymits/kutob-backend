@@ -87,6 +87,8 @@ ASGI_APPLICATION = 'kutob_backend.asgi.application'
 CELERY_BROKER_URL = 'redis://localhost:6379'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
+# SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
