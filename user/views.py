@@ -16,16 +16,13 @@ def createUser(request):
     serializer = UserSerializer(data=request.data)
     
     if serializer.is_valid():
-        user = User.objects.create(username=serializer.data['username'])
-        
+
         # create player object 
         player = Player.objects.create(username=serializer.data['username'])
         
-        # save to DB
-        user.save()
         player.save()
         
-        context['username'] = user.username
+        context['username'] = serializer.data['username']
         context['message'] = 'User created'
         
         return Response(context, status=200)
@@ -37,13 +34,8 @@ def createUser(request):
 def deleteUser(request, username):
     context = {}
 
-    user = get_object_or_404(User, username=username)
     player = get_object_or_404(Player, username=username)
-
-    user.delete()
-    # delete player if they have no game code, else, ignore delete
-    if not player.game:
-        player.delete()
+    player.delete()
     
     context['message'] = 'Delete Successful'
     return Response(context, status=204)
