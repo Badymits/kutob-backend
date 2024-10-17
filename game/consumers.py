@@ -40,6 +40,13 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_discard(self.room_code, self.channel_name)
         await self.channel_layer.group_discard(self.player_room_code, self.channel_name)
         
+        game = Game.objects.get(room_code=self.group_code)
+        
+        # end the game when a player leaves the game
+        if game.players.count() < game.room_limit and game.has_started == True:
+            # send users to 9th phase na. End the damn game
+            pass
+        
         # send message to frontend notifying users who left and updating player list to change UI
         self.players = await self.getPlayersInLobby(self.group_code)
         data = {
