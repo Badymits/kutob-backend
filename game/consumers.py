@@ -1,11 +1,11 @@
 import json
 from django.shortcuts import get_object_or_404
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from channels.db import database_sync_to_async, DatabaseSyncToAsync
 from asgiref.sync import sync_to_async, async_to_sync
 
-from game.models import Game
+from game.models import Game, Player
 from game.serializers import PlayersInLobby
+from game.tasks import phaseInitialize
 
 
 class GameRoomConsumer(AsyncJsonWebsocketConsumer):
@@ -40,11 +40,12 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_discard(self.room_code, self.channel_name)
         await self.channel_layer.group_discard(self.player_room_code, self.channel_name)
         
-        game = Game.objects.get(room_code=self.group_code)
+        """
+        end the game if user disconnects while it is still ongoing
+        """
+        self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
         
-        # end the game when a player leaves the game
-        if game.players.count() < game.room_limit and game.has_started == True:
-            # send users to 9th phase na. End the damn game
+        if self.game is True:
             pass
         
         # send message to frontend notifying users who left and updating player list to change UI
@@ -126,7 +127,6 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     @sync_to_async
     def getPlayersInLobby(self, code):
         
-        # sana walang error dito
         try:
             game = Game.objects.get(room_code=code)
             playerList = PlayersInLobby(game.players.all(), many=True).data
@@ -136,6 +136,28 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
             
         return playerList 
     
+    @sync_to_async
+    def userDisconnectInGame(self, code, user):
+        
+        try:
+            game = Game.objects.get(room_code=code)
+            player = Player.objects.get(username=user)
+            game.players.remove(player)
+            print(game)
+            if game.players.count() < game.room_limit and game.has_started and not game.has_ended:
+                print("not true, since we're still in lobby")
+                game.game_phase = 8
+                game.winners = 'Mga Taumbayan'
+                game.save()
+                phaseInitialize.delay(code=code)
+                return True
+            else:
+                print("true because we're still in lobby")
+                pass
+        except ValueError:
+            print('Could not find game')
+            return False
+        
     
 
     
