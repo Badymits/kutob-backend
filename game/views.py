@@ -45,7 +45,7 @@ def createRoom(request):
     # check if there is existing lobby
     try:
         game = get_object_or_404(Game, room_code=room_code)
-    except: 
+    except Game.DoesNotExist: 
         game = None
     
     # create if it doesn't exist
@@ -80,7 +80,7 @@ def joinRoom(request):
     # search game obj
     try:
         game = Game.objects.get(room_code=code)
-    except:
+    except ValueError:
         game = None
     
     if game is None:
@@ -89,7 +89,7 @@ def joinRoom(request):
     
     try:
         user = Player.objects.get(username=player)
-    except:
+    except Player.DoesNotExist:
         user = None
         context['message'] = 'An error ocurred, player does not exist'
         return Response(context, status=400)
@@ -156,13 +156,13 @@ def leaveRoom(request):
             context['message'] = 'Left the room'
             
             # delete game room if last player in the room left, 
-            if Game.objects.filter(players=None):
-                game.delete()
+            # if Game.objects.filter(players=None):
+            #     game.delete()
             
         else:
             context['message'] = 'Player does not exist'
         return Response(context)
-    except:
+    except Game.DoesNotExist:
         context['message'] = 'Game does not exist'
         return Response(context)
     
