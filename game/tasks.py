@@ -101,6 +101,9 @@ def phaseCountdown(code):
         else:
             print('no phase')
             countdown = 10
+            
+        if int(game.game_phase) > 9:
+            return None
     
         # countdown for transition to next phase
         for i in range(countdown):
@@ -573,6 +576,10 @@ def phaseInitialize(code):
         game.game_phase = phase
         game.save()
         phaseCountdown.delay(code)
+        
+
+def delete_inactive_players():
+    players  = Player.objects.filter(Q(in_game=False) & Q())
 
 # vote counting function
 def most_common(lst):
