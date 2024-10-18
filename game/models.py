@@ -8,8 +8,8 @@ class Game(models.Model):
     
     owner                   = models.ForeignKey('game.Player', on_delete=models.CASCADE, related_name='owner')
     players                 = models.ManyToManyField('game.Player', related_name='players')
-    room_limit              = models.CharField(max_length=55, default=5)
-    aswang_limit            = models.CharField(max_length=10,default=1)
+    room_limit              = models.IntegerField(default=5)
+    aswang_limit            = models.IntegerField(default=1)
     room_code               = models.CharField(unique=True, max_length=8)
     room_state              = models.CharField(choices=ROOM_STATE, null=True, max_length=255, default=ROOM_STATE[0])
     winners                 = models.CharField(max_length=255,null=True, blank=True)
@@ -37,11 +37,11 @@ class Game(models.Model):
 
 class Player(models.Model):
     
-    username                 = models.CharField(max_length=255, null=True, blank=True)
+    username                 = models.CharField(max_length=255,default='', blank=True, unique=True)
     alive                    = models.BooleanField(default=True)
     game                     = models.ManyToManyField(Game, related_name='games', blank=True) # switch to many to many field
-    role                     = models.CharField(max_length=255, null=True, blank=True)
-    in_game                  = models.CharField(max_length=255, null=True, blank=True)
+    role                     = models.CharField(max_length=255,default='', blank=True)
+    in_game                  = models.CharField(max_length=255,default='', blank=True)
     
     # fields related to mangangaso
     is_protected             = models.BooleanField(default=False, null=True, blank=True)
