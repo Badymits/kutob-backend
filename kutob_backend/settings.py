@@ -95,7 +95,8 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 CELERY_BEAT_SCHEDULE = {
     'delete_inactive_users': {
-        'task': ""
+        'task': "game.tasks.delete_inactive_players",
+        "schedule": crontab(minute='*/10')
     }
 }
 
