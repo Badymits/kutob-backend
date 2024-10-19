@@ -13,6 +13,7 @@ from django.core.cache import cache
 
 import math
 import random
+from datetime import datetime
 
 # creates a code for the room in FE
 def createCode(length):
@@ -137,6 +138,10 @@ def leaveRoom(request):
             game.players.remove(player)
             player.game.remove(game)
             
+            # to track the last time since user played, will be used to check if user is inactive 
+            if game.has_ended:
+                player.time_since_last_game = datetime.now()
+            
             #if player.in_game == True: 
             player.role = ''
             player.alive = True
@@ -155,6 +160,7 @@ def leaveRoom(request):
             player.in_game = False
             player.in_lobby = False
             player.save() 
+            
             
             context['message'] = 'Left the room'
             
