@@ -481,7 +481,7 @@ def phaseInitialize(code):
         else:
             data = {
                 'type': 'vote_tie',
-                'message': 'There was a TIE among players, no one will be eliminated'
+                'message': 'the vote is a TIE. no one will be eliminated'
             }
             
         async_to_sync(channel_layer.group_send)(
