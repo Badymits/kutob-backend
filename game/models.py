@@ -41,7 +41,8 @@ class Player(models.Model):
     alive                    = models.BooleanField(default=True)
     game                     = models.ManyToManyField(Game, related_name='games', blank=True) # switch to many to many field
     role                     = models.CharField(max_length=255,default='', blank=True)
-    in_game                  = models.CharField(max_length=255,default='', blank=True)
+    in_game                  = models.BooleanField(default=False, blank=True)
+    in_lobby                 = models.BooleanField(default=False, blank=True)
     
     # fields related to mangangaso
     is_protected             = models.BooleanField(default=False, null=True, blank=True)
