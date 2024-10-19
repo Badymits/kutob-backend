@@ -44,12 +44,8 @@ def createRoom(request):
     
     # check if there is existing lobby
     try:
-        game = get_object_or_404(Game, room_code=room_code)
-    except Game.DoesNotExist: 
-        game = None
-    
-    # create if it doesn't exist
-    if game is None:
+        #game = get_object_or_404(Game, room_code=room_code)
+        
         game = Game.objects.create(
             owner=user,
             room_code=room_code
@@ -58,12 +54,17 @@ def createRoom(request):
         game.players.add(user)
         user.game.add(game)
         
+        user.in_game = False
+        user.in_lobby = True
+        user.save()
+        
         game.save()
 
         context['message'] = 'Lobby created'
-    else:
+    except ValueError: 
         context['message'] = 'Lobby already exists'
-    
+
+        
     return Response(context)
 
 
@@ -101,10 +102,11 @@ def joinRoom(request):
         if game is not None and user is not None:
             game.players.add(user)
             user.game.add(game)
+            user.in_lobby = True
+            user.save()
             # retrieve all players in the room
             players = game.players.all().values_list('username', flat=True)
             
-            print(players)
             
             context['players'] = players
             context['message'] = 'Room found'
@@ -151,6 +153,7 @@ def leaveRoom(request):
             player.eliminated_from_game = False
             
             player.in_game = False
+            player.in_lobby = False
             player.save() 
             
             context['message'] = 'Left the room'
@@ -178,7 +181,7 @@ def updateRoomSettings(request):
     if request.method == 'PATCH':
         try:
             game = Game.objects.get(room_code=code)
-        except:
+        except Game.DoesNotExist:
             context['message'] = 'Game room does not exist'
             return Response(context)
         
@@ -322,7 +325,7 @@ def startGameSession(request):
     channel_layer = get_channel_layer()
     try: 
         game = Game.objects.get(room_code=code)
-    except:
+    except Game.DoesNotExist:
         context['message'] = 'Game not found'
         return Response(context, status=400)
     
@@ -584,53 +587,67 @@ def votePlayer(request):
 
 
 def assignRole(players, aswang_limit):
-    print('players here: ', players)
-    max = 4
+
     count = int(aswang_limit) #parse to int for safety measures (got history with this potangina)
     player_role_dict = {}
     
     # initialize roles
     # there will be race condition issues here so try to come up with another way to assign roles
     roles = ['mangangaso', 'aswang', 'babaylan', 'manghuhula']
-    #aswang_roles = ['aswang - manduguro', 'aswang - manananggal', 'aswang - berbalang']
+    aswang_roles = ['aswang - manduguro', 'aswang - manananggal'] # remove aswang berbalang for the mean time
     
     # temp aswang arrays
-    aswang_roles = ['aswang - berbalang']
+    #aswang_roles = ['aswang - berbalang']
     
     for player in players:
-        
+        player.in_lobby = False
         player.in_game = True
-        if len(roles) != 0:
+        
+        while True:
+            role = random.choice(roles)
+            
+            if role not in player_role_dict.values():
+                if role == 'aswang':
+                    aswang_role = random.choice(aswang_roles)
+                    count -= 1
+                    player.role = aswang_role
+                    player.save()
+                    
+                    if count == 0:
+                        roles.remove('aswang')
+                else:
+                    player.role = role
+                    player.save()
+                    
+                player_role_dict[f'{player.username}'] = player.role
+                
+                break
+            
+            elif (role == 'aswang') and (role=='aswang' not in  player_role_dict.values()):
 
-            num = random.randint(0, max)
-            if num == 4:
+                aswang_role = random.choice(aswang_roles)
+                count -= 1
+                player.role = aswang_role
+                player.save()
+                
+                if count == 0:
+                    role = random.choice(roles)
+                    player.role = role
+                    player.save()
+    
+                # add player and role to dictionary
+                player_role_dict[f'{player.username}'] = player.role
+                
+                break
+            else:
                 player.role = 'taumbayan'
                 player.save()
-                max -= 1
-            #disregard num after that point
-            else:
-                role = random.choice(roles)
-
-                # this will remove the other roles from the list so taumbayan will be left
-                if role != 'taumbayan' and role != 'aswang':
-                    player.role = role
-                    roles.remove(role)
                 
-                # aswang role count will depend on aswang limit settings
-                if role == 'aswang':
-                    role_aswang = random.choice(aswang_roles)
-                    player.role = role_aswang
-                    count -= 1
-                    # when count reaches to zero, this means no more players will be assigned aswang
-                    if count == 0:
-                        roles.remove(role)
-        else:
-            player.role = 'taumbayan'
-        
-        player.save()
-        
-        # add player and role to dictionary
-        player_role_dict[f'{player.username}'] = player.role
+                # add player and role to dictionary
+                player_role_dict[f'{player.username}'] = player.role
+                
+                break
+    player.save()
     
     return player_role_dict
     
