@@ -1,11 +1,13 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.utils import timezone
 
 from celery import shared_task
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from time import sleep
 from collections import Counter
+from datetime import datetime, timedelta
 
 from .models import Game, Player
 from .serializers import PlayersInLobby, PlayerSerializer, WinnersSerializer
@@ -577,9 +579,15 @@ def phaseInitialize(code):
         game.save()
         phaseCountdown.delay(code)
         
-
+@shared_task
 def delete_inactive_players():
-    players  = Player.objects.filter(Q(in_game=False) & Q())
+    players  = Player.objects.filter(Q(in_game=False) & Q(in_lobby=False))
+    
+    for player in players:
+        if player.time_since_last_game < (timezone.now() - timedelta(minutes=15)): # if idle time is greater than or equal to 15 mins
+            player.delete()
+    
+    return 'inactive players deleted'
 
 # vote counting function
 def most_common(lst):
