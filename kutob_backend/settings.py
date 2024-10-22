@@ -35,10 +35,8 @@ CORS_ORIGIN_WHITELIST = [
 CSRF_COOKIE_NAME = "XSRF-TOKEN"
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'Asia/Manila'
-USE_I18N = True
-USE_L10N = True
-USE_TZ = False
+
+
 
 # Application definition
 
@@ -102,7 +100,7 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BEAT_SCHEDULE = {
     'delete_inactive_users': {
         'task': "game.tasks.delete_inactive_players",
-        "schedule": crontab(minute=0, hour='*/1') # Execute every hour.
+        "schedule": crontab(minute='*/5') # Execute every 5 mins.
     }
 }
 
@@ -199,10 +197,10 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/manila'
 
 USE_I18N = True
-
+USE_L10N = True
 USE_TZ = True
 
 
