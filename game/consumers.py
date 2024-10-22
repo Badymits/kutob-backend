@@ -145,7 +145,12 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
             game.players.remove(player)
             print(game)
             if game.players.count() < game.room_limit and game.has_started and not game.has_ended:
-                print("not true, since we're still in lobby")
+                
+                player.in_lobby = False
+                player.in_game = False
+                
+                player.save()
+                
                 game.game_phase = 8
                 game.winners = 'Mga Taumbayan'
                 game.save()
