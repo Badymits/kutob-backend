@@ -13,7 +13,7 @@ from django.core.cache import cache
 
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # creates a code for the room in FE
 def createCode(length):
@@ -37,36 +37,42 @@ def createRoom(request):
     
     context = {}
     # retrieve owner from request to query user obj
-    user = Player.objects.get(username=request.data['owner'])
-    print(request.data['owner'])
-    room_code = createCode(8)
-    context['code'] = room_code
-    
-    
-    # check if there is existing lobby
     try:
-        #game = get_object_or_404(Game, room_code=room_code)
+        user = Player.objects.get(username=request.data['owner'])
         
-        game = Game.objects.create(
-            owner=user,
-            room_code=room_code
-        )
+        room_code = createCode(8)
+        context['code'] = room_code
         
-        game.players.add(user)
-        user.game.add(game)
-        
-        user.in_game = False
-        user.in_lobby = True
-        user.save()
-        
-        game.save()
+        # check if there is existing lobby
+        try:
+            #game = get_object_or_404(Game, room_code=room_code)
+            
+            game = Game.objects.create(
+                owner=user,
+                room_code=room_code
+            )
+            
+            game.players.add(user)
+            user.game.add(game)
+            
+            user.in_game = False
+            user.in_lobby = True
+            user.save()
+            
+            game.save()
 
-        context['message'] = 'Lobby created'
-    except ValueError: 
-        context['message'] = 'Lobby already exists'
-
-        
-    return Response(context)
+            context['message'] = 'Lobby created'
+            return Response(context, status=200)
+        except ValueError: 
+            context['message'] = 'Lobby already exists'
+            
+            return Response(context, status=400)
+            
+            
+    except Player.DoesNotExist:
+        context['message'] = 'Inactivity detected, redirecting to register'
+        return Response(context, status=400)
+    
 
 
 
@@ -82,44 +88,42 @@ def joinRoom(request):
     # search game obj
     try:
         game = Game.objects.get(room_code=code)
+        
+        try:
+            user = Player.objects.get(username=player)
+        except Player.DoesNotExist:
+            user = None
+            context['message'] = 'An error ocurred, player does not exist'
+            return Response(context, status=400)
+        
+        # users cannot enter if the room is already at the player limit count
+        if int(game.room_limit) > game.players.all().count():
+            
+            if game is not None and user is not None:
+                game.players.add(user)
+                user.game.add(game)
+                user.in_lobby = True
+                user.save()
+                # retrieve all players in the room
+                players = game.players.all().values_list('username', flat=True)
+                
+                
+                context['players'] = players
+                context['message'] = 'Room found'
+                return Response(context, status=200)
+            
+            else:
+                context['message'] = 'Error ocurred'
+                return Response(context)
+        else:
+            context['message'] = 'Room is full, cannot join',
+            return Response(context, status=400)
+            
     except ValueError:
         game = None
-    
-    if game is None:
         context['message'] = 'Room does not exist'
         return Response(context, status=404)
-    
-    try:
-        user = Player.objects.get(username=player)
-    except Player.DoesNotExist:
-        user = None
-        context['message'] = 'An error ocurred, player does not exist'
-        return Response(context, status=400)
-    
-    
-    # users cannot enter if the room is already at the player limit count
-    if int(game.room_limit) > game.players.all().count():
-        
-        if game is not None and user is not None:
-            game.players.add(user)
-            user.game.add(game)
-            user.in_lobby = True
-            user.save()
-            # retrieve all players in the room
-            players = game.players.all().values_list('username', flat=True)
-            
-            
-            context['players'] = players
-            context['message'] = 'Room found'
-            return Response(context, status=200)
-        
-        else:
-            context['message'] = 'Error ocurred'
-            return Response(context)
-    else:
-        context['message'] = 'Room is full, cannot join',
-        return Response(context, status=400)
-    
+
     
 @api_view(['DELETE'])
 def leaveRoom(request):
@@ -139,7 +143,7 @@ def leaveRoom(request):
             player.game.remove(game)
             
             # to track the last time since user played, will be used to check if user is inactive 
-            if game.has_ended:
+            if game.has_ended or not player.in_lobby and not player.in_game:
                 player.time_since_last_game = datetime.now()
             
             #if player.in_game == True: 
@@ -165,8 +169,8 @@ def leaveRoom(request):
             context['message'] = 'Left the room'
             
             # delete game room if last player in the room left, 
-            # if Game.objects.filter(players=None):
-            #     game.delete()
+            if Game.objects.filter(players=None):
+                game.delete()
             
         else:
             context['message'] = 'Player does not exist'
