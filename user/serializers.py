@@ -1,9 +1,9 @@
 from rest_framework import serializers
-from .models import User
+from game.models import Player
 
 
 class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
-        model = User
+        model = Player
         fields = ['username']
