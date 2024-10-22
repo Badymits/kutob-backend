@@ -1,4 +1,6 @@
 from django.db import models
+from django.utils import timezone
+
 
 
 class Game(models.Model):
@@ -50,8 +52,8 @@ class Player(models.Model):
     night_skip               = models.IntegerField(default=0, null=True, blank=True) # instances where the manananggal renders mangangaso ineffective
     execute                  = models.CharField(max_length=255, null=True, blank=True) # 
     
-    # place field time_sInce_last_game: wherein users who haven't played a game within 1hr will be deleted immediately by using celery-beat
-    time_since_last_game     = models.DateTimeField(auto_now=False, blank=True, null=True)
+    # place field time_sInce_last_game: wherein users who haven't played a game within 5 minutes will be deleted immediately by using celery-beat
+    time_since_last_game     = models.DateTimeField(default=timezone.now, blank=True, null=True)
     
     # for aswang roles
     night_target             = models.BooleanField(default=False, null=True, blank=True)
