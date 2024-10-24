@@ -45,7 +45,6 @@ def phaseCountdown(code):
     if game:
         print('game countdown current phase: ',game.game_phase)
         
-        # increment night and day count on 1st phase
         if int(game.game_phase) == 1:
             countdown = 10
            
@@ -54,7 +53,7 @@ def phaseCountdown(code):
             countdown = 5
             game.save()
             game_time = game.night_count
-            # send to frontend the day/night count
+
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -71,7 +70,7 @@ def phaseCountdown(code):
             game.save()
             countdown = 5
             game_time = game.day_count
-            # send to frontend the day/night count
+
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -89,7 +88,6 @@ def phaseCountdown(code):
             
             
         elif int(game.game_phase) == 6:
-            # start time in frontend
              # 1 minute for players to discuss and decide to vote
             countdown = 60
             
@@ -138,14 +136,13 @@ def phaseInitialize(code):
     if phase == 3:
         
         player_list = game.players.all()
-        
-        # refresh the is_protected state for the following night
+    
         new_players_state_list = refreshPlayerState(player_list)
         
         # serialize the player list then send to frontend
         current_players = PlayersInLobby(new_players_state_list, many=True).data
         
-        # send to frontend to update list
+        
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
             {
@@ -164,6 +161,10 @@ def phaseInitialize(code):
         # mangangaso can protect if it has the same night count (since they will be rendered ineffective for a turn by the manananggal)
         if mangangaso.night_skip == game.night_count:
             mangangaso.skip_turn = False
+            mangangaso.save()
+            
+        if game.night_count == 6:
+            mangangaso.can_execute = True
             mangangaso.save()
         
         # this will only show if the aswang type is manananggal
@@ -185,7 +186,7 @@ def phaseInitialize(code):
                 'type': 'update_roleTurn',
                 'role': 'mangangaso'
             }
-        # send to frontend which user will have the first turn, mangangaso (if alive) or aswang (if mangangaso is not alive)
+
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
             {
@@ -206,7 +207,6 @@ def phaseInitialize(code):
             }
         )
         
-        # need to save current phase so it won't loop
         game.game_phase = phase
         game.save()
         
@@ -222,12 +222,7 @@ def phaseInitialize(code):
                 player.eliminated_on_night = int(game.night_count)
                 player_obj.save()
 
-        """
-            filtered list does not refresh when declared before for loop, this should take place after changes has been made
-        """
         current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-        print('current player count: ', current_players.count())
-        print('current players: ', current_players)
         
         # the player count should consist of only aswang
         if int(current_players.count()) == 1 and current_players.filter(
@@ -235,7 +230,7 @@ def phaseInitialize(code):
                 Q(role='aswang - manananggal') | 
                 Q(role='aswang - berbalang')
                 ).exists():
-            # send to last phase, announcement shit:
+
             game.winners = 'Mga Aswang'
             
             phase = 8
@@ -303,7 +298,6 @@ def phaseInitialize(code):
         
         if eliminated_players > 0 and revived_players == 0:
             
-            # get player
             player = game.players.filter(eliminated_on_night=game.night_count).first()
             playerSerialized  = PlayerSerializer(player).data
             if eliminated_players > 1:
@@ -311,7 +305,6 @@ def phaseInitialize(code):
             else:
                 message = f'There was {eliminated_players} victim during the night'
                 
-            # make announcement to inform users
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -345,7 +338,6 @@ def phaseInitialize(code):
             eliminated_players = 0
             message = 'There were no victims during the night'
         
-            # make announcement to inform users
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -379,7 +371,6 @@ def phaseInitialize(code):
     # voting phase, send alive players so users can vote on any of them to be eliminated from the game
     elif phase == 7:
         current_players = PlayersInLobby(game.players.filter(Q(alive=True) & Q(eliminated_from_game=False)), many=True).data
-        print('current players in game: ', current_players)
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
             {
@@ -410,30 +401,25 @@ def phaseInitialize(code):
     # voting result phase, players will know if they eliminated the right player
     elif phase == 8:
         
-        # get votes related to game
         players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-        print(players)
         
         vote_list = []
         
-        # adding vote list to check most voted player
+
         for i in players.iterator():
             if i.vote_target is not None: # to ignore players who have not voted during this phase
                 vote_list.append(i.vote_target.username)
         
         result = most_common(vote_list)
-        print('highest vote is: ', result)
 
         
         if result != 'tie':
             
-            # remove from game
             player_eliminated = Player.objects.get(username=result)
             player_eliminated.eliminated_from_game = True
             player_eliminated.save()
             
             current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
-            print('current player: ', current_players)
             
             # if aswang players are the only players left in the game, send to last phase
             if int(current_players.count()) == 1 and current_players.filter(
@@ -461,7 +447,6 @@ def phaseInitialize(code):
                 except:
                     player = ''
                 
-                # announce whether the eliminated player is the aswang or not
                 if player.role == 'aswang - manduguro' or player.role == 'aswang - manananggal' or player.role == 'aswang - berbalang':
                     data = {
                         'type': 'is_aswang',
@@ -527,13 +512,11 @@ def phaseInitialize(code):
             game.save()
             phaseCountdown.delay(code)
         else:
-            # initialize data
             data = {
                 'type': 'announce_winners',
                 'winners': str(game.winners)
             }
             
-            # send to frontend the winners of the game
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -542,7 +525,6 @@ def phaseInitialize(code):
                 }
             )
             
-            # next phase
             async_to_sync(channel_layer.group_send)(
                 f'room_{code}',
                 {
@@ -595,20 +577,17 @@ def most_common(lst):
     # returns 2 items stored in a list (it returns the top 2 candidates with highest votes)
     data = Counter(lst).most_common(2)
     
-    # if no one votes
     if len(data) == 0:
         return 'tie'
     
     # if at least 1 vote, continue with vote counting
     elif len(data) >= 1:
         
-        # get first index
         first_item = data[0] 
         
         # if more than 2 players are nominated, get the second index of data 
         if len(data) > 1:
             second_item = data[1]
-            print('first item count: ', first_item[1], 'second item count: ', second_item[1])
             
             # second index is their count
             if first_item[1] == second_item[1]:
@@ -647,6 +626,8 @@ def refreshPlayerState(players):
         player.save()
             
     return new_player_list
+    
+    
     
 # couldn't import from views becuase it would be a circular import error
 def searchAswangRole(game):
