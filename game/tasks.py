@@ -12,6 +12,10 @@ from datetime import datetime, timedelta
 from .models import Game, Player
 from .serializers import PlayersInLobby, PlayerSerializer, WinnersSerializer
 
+import redis
+
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=1)
+
 
 channel_layer = get_channel_layer()
 
@@ -33,13 +37,42 @@ def send_role(player,code,role):
         }
     )
 
+@shared_task
+def countdown_timer(code, duration):
+    
+    #redis_timer = redis_client.get(f'game_{code}_timer')
+    
+    redis_key = f'game_{code}_timer'
+    
+    # Store the countdown value in Redis
+    redis_client.set(redis_key, duration)
+    
+    # Send update to the channel layer
+    async_to_sync(channel_layer.group_send)(f'room_{code}', {
+        'type': 'send_message',
+        'data': {
+            'type': 'countdown',
+            'countdown': duration
+        }
+    })
+    
+    # Check if there is more time left
+    if duration > 1:
+        # Schedule the next update after 1 second
+        countdown_timer.apply_async(args=[code, duration - 1], countdown=1)
+    else:
+        # Call the next phase or action
+        phaseInitialize.apply_async(args=[code], countdown=1)
+        
+    
 # alternative solution instead of it being handled by the frontend, this ensures synchronicity of all clients related to the game
 @shared_task
 def phaseCountdown(code): 
     print('sending')
     try:
         game = get_object_or_404(Game, room_code=code)
-    except:
+    except Exception as e:
+        print(f'Error: {e}')
         game = None
 
     if game:
@@ -104,23 +137,9 @@ def phaseCountdown(code):
             
         if int(game.game_phase) > 9:
             return None
-    
-        # countdown for transition to next phase
-        for i in range(countdown):
-            async_to_sync(channel_layer.group_send)(
-                f'room_{code}',
-                {
-                    'type': 'send_message',
-                    'data': {
-                        'type': 'countdown',
-                        'countdown': countdown # will be shown in the UI
-                    }
-                }
-            )
-            sleep(1)
-            countdown -= 1
+
+        countdown_timer.apply_async(args=[code, countdown]) 
         
-        phaseInitialize.delay(code)
     else:
         return None
 
@@ -224,12 +243,12 @@ def phaseInitialize(code):
 
         current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         
-        # the player count should consist of only aswang
-        if int(current_players.count()) == 1 and current_players.filter(
+        # the player list should consist of only aswang
+        if current_players.filter(
                 Q(role='aswang - manduguro') | 
                 Q(role='aswang - manananggal') | 
                 Q(role='aswang - berbalang')
-                ).exists():
+            ).exists():
 
             game.winners = 'Mga Aswang'
             
@@ -398,14 +417,18 @@ def phaseInitialize(code):
         
         phaseCountdown.delay(code)
     
+
     # voting result phase, players will know if they eliminated the right player
     elif phase == 8:
-        
+
+        aswang_player_count = game.players.filter(
+            Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')
+        ).count()
         players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         
         vote_list = []
         
-
+    
         for i in players.iterator():
             if i.vote_target is not None: # to ignore players who have not voted during this phase
                 vote_list.append(i.vote_target.username)
@@ -440,28 +463,26 @@ def phaseInitialize(code):
                 
             else:
                 
-                try:
-                    player = get_object_or_404(Player, username=result)
-                    player.eliminated_from_game = True
-                    player.save()
-                except:
-                    player = ''
+                if player_eliminated.role == 'aswang - manduguro' or player.role == 'aswang - manananggal' or player.role == 'aswang - berbalang':
                 
-                if player.role == 'aswang - manduguro' or player.role == 'aswang - manananggal' or player.role == 'aswang - berbalang':
+                    if aswang_player_count >=1:
+                        message = f'The player eliminated IS the aswang, there are {aswang_player_count} remaining, the game continues...'
+                        
+                    else:
+                        message = f'The player eliminated IS the aswang, there are {aswang_player_count} remaining, taumbayan wins!'
+                        game.winners = 'Mga Taumbayan' # send to winning phase (which is next phase, phase 9)
+                        
                     data = {
                         'type': 'is_aswang',
                         'eliminated': result,
-                        'message': 'The player eliminated IS the aswang'
+                        'message': message
                     }
-                    
-                    game.winners = 'Mga Taumbayan' # send to winning phase (which is next phase, phase 9)
-                    
 
                 else: 
                     data = {
                         'type': 'not_aswang',
                         'eliminated': result,
-                        'message': 'The player eliminated is NOT the aswang' # back to phase 2
+                        'message': 'The player eliminated is NOT the aswang, the game continues...' # back to phase 2
                     }
 
         # in an event of a tie, send appropriate message to users
@@ -508,7 +529,7 @@ def phaseInitialize(code):
                     }
                 }
             )
-            game.game_phase = 2
+            game.game_phase = phase
             game.save()
             phaseCountdown.delay(code)
         else:
@@ -574,18 +595,27 @@ def delete_inactive_players():
 # vote counting function
 def most_common(lst):
     
-    # returns 2 items stored in a list (it returns the top 2 candidates with highest votes)
+    """returns 2 items stored in a list 
+    (it returns the top 2 candidates with highest votes)
+    
+    if at least 1 vote, continue with vote counting
+    if more than 2 players are nominated, get the second index of data 
+    
+    this function returns either 'tie' or the username of the player
+    
+    """
+    
     data = Counter(lst).most_common(2)
     
     if len(data) == 0:
         return 'tie'
     
-    # if at least 1 vote, continue with vote counting
+
     elif len(data) >= 1:
         
         first_item = data[0] 
         
-        # if more than 2 players are nominated, get the second index of data 
+        
         if len(data) > 1:
             second_item = data[1]
             
@@ -632,20 +662,13 @@ def refreshPlayerState(players):
 # couldn't import from views becuase it would be a circular import error
 def searchAswangRole(game):
     
-    players = game.players.all()
+    aswang_player = game.players.filter(
+        (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) 
+        & Q(night_target=None)
+    ).first()
     
-    # since there are three types of aswang that can be given at random.. we have to search the players in the game if any role exists
-    if game.players.filter( Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang') ).exists():
-        for player in players:
-            
-            if player.role == 'aswang - manduguro':
-                return 'aswang - manduguro'
-            
-            elif player.role == 'aswang - manananggal':
-                return 'aswang - manananggal'
-            
-            elif player.role == 'aswang - berbalang':
-                return 'aswang - berbalang'
-    else:
+    if not aswang_player:
         return None
+    else:
+        return aswang_player.role
 
