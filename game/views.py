@@ -84,7 +84,6 @@ def joinRoom(request):
     player = request.data['player']
     code = request.data['code']
     
-    print(request.session)
     # search game obj
     try:
         game = Game.objects.get(room_code=code.upper())
@@ -109,6 +108,7 @@ def joinRoom(request):
                 
                 
                 context['players'] = players
+                context['player_count'] = game.room_limit
                 context['message'] = 'Room found'
                 return Response(context, status=200)
             
@@ -154,6 +154,7 @@ def leaveRoom(request):
             player.skip_turn = False
             player.night_skip = 0
             player.night_target = False
+            player.turn_done = False
             
             player.eliminated_on_night = 0
             player.revived_on_night = 0
@@ -227,7 +228,7 @@ def updateRoomSettings(request):
                         'data': data
                     }
                 )
-                context['message'] = 'Cannot remove other players that joined the room'
+
                 return Response(data=data,status=400) 
 
 
@@ -331,11 +332,15 @@ def updateRoomSettings(request):
 def startGameSession(request):
     
     context = {}
+    
     code = request.data['code']
     channel_layer = get_channel_layer()
+    
     try: 
         game = Game.objects.get(room_code=code)
+        
     except Game.DoesNotExist:
+        
         context['message'] = 'Game not found'
         return Response(context, status=400)
     
@@ -343,7 +348,8 @@ def startGameSession(request):
     if game:
         game.has_started = True
         game.room_state = 'IN_GAME'
-        players = game.players.all()
+        players = game.players.all().order_by('?')
+        
 
         playerDict = assignRole(players=players, aswang_limit=game.aswang_limit)
             
@@ -433,6 +439,7 @@ def votePlayer(request):
         player_that_voted = get_object_or_404(Player, username=request.data['player'])
         vote_target = get_object_or_404(Player, username=request.data['vote_target'])
         
+        
     except Exception as e:
         print(f'error {e}')
         context['message'] = 'Not found'
@@ -452,9 +459,24 @@ def roleTargetProcess(role, player, game, target, code):
     
     if role == 'mangangaso':
         next_role = searchAswang(game=game)
+        aswang_players = getAswangPlayers(game=game)
+        
         target.is_protected = True
         target.save()
-        role = next_role
+        role = next_role.role
+
+        
+        async_to_sync(channel_layer.group_send)(
+            f'{next_role.username}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': next_role.username,
+                    'aswang_players': aswang_players
+                }
+            }
+        )
         
     
     elif role == 'aswang - manduguro':
@@ -469,21 +491,45 @@ def roleTargetProcess(role, player, game, target, code):
         if both are not alive, then skip role and change phase 
         
         """
-        aswang_role = searchAswang(game=game)
         
+        player.turn_done = True
+        player.save()
+        
+        aswang_role = searchAswang(game=game)
+        aswang_players = getAswangPlayers(game=game)
+
         if aswang_role:
-            role = aswang_role
+            role = aswang_role.role
+            next_player = aswang_role.username
         else: 
-            role = searchBabaylanOrManghuhula(game=game)
+            get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
+            if get_role:
+                role = get_role.role
+                next_player = get_role.username
+            else:
+                role = None
+            
+        async_to_sync(channel_layer.group_send)(
+            f'{next_player}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': next_player,
+                    'aswang_players': aswang_players
+                }
+            }
+        )
         
     
     elif role == 'aswang - manananggal':
         
         
         if target.is_protected == False:
-
+            
             # mark the player to eliminate
             player_obj = target
+            
             player_obj.night_target = True
             player_obj.save()
 
@@ -497,6 +543,9 @@ def roleTargetProcess(role, player, game, target, code):
                 player_obj.skip_turn = True
                 player_obj.night_skip = int(game.night_count) + 2
                 player_obj.save()
+        
+        player.turn_done = True
+        player.save()
 
         """
         need to check if players with these roles are alive, if true then change role to the corresponding role, 
@@ -504,11 +553,31 @@ def roleTargetProcess(role, player, game, target, code):
         """
         
         aswang_role = searchAswang(game=game)
+        aswang_players = getAswangPlayers(game=game)
         
         if aswang_role:
-            role = aswang_role
+            
+            role = aswang_role.role
+            next_player = aswang_role.username
         else: 
-            role = searchBabaylanOrManghuhula(game=game)
+            get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
+            if get_role:
+                role = get_role.role
+                next_player = get_role.username
+            else:
+                role = None
+            
+        async_to_sync(channel_layer.group_send)(
+            f'{next_player}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': next_player,
+                    'aswang_players': aswang_players
+                }
+            }
+        )
 
         
     elif role == 'aswang - berbalang':
@@ -518,13 +587,36 @@ def roleTargetProcess(role, player, game, target, code):
             player_obj.night_target = True
             player_obj.save()
 
+        player.turn_done = True
+        player.save()
         
         aswang_role = searchAswang(game=game)
+        aswang_players = getAswangPlayers(game=game)
         
         if aswang_role:
-            role = aswang_role
+            
+            role = aswang_role.role
+            next_player = aswang_role.username
         else: 
-            role = searchBabaylanOrManghuhula(game=game)
+            get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
+            if get_role:
+                role = get_role.role
+                next_player = get_role.username
+            else:
+                role = None
+            
+        
+        async_to_sync(channel_layer.group_send)(
+            f'{next_player}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': next_player,
+                    'aswang_players': aswang_players
+                }
+            }
+        )
         
 
     elif role == 'babaylan':
@@ -535,14 +627,24 @@ def roleTargetProcess(role, player, game, target, code):
             player_obj.night_target = False
             player_obj.save()
             
-        role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
+        role_manghuhula = checkRoleStatus(game=game, role='manghuhula') # returns player obj
         
-        if role_manghuhula == True:
-            role = 'manghuhula'
+        if role_manghuhula:
+            role = role_manghuhula.role
+            next_player = role_manghuhula.username
+            async_to_sync(channel_layer.group_send)(
+            f'{next_player}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': next_player,
+                }
+            }
+        )
         else:
             role = None
-        
-        
+
     elif role == 'manghuhula':
         role_of_target = target.role
         async_to_sync(channel_layer.group_send)(
@@ -575,8 +677,8 @@ def assignRole(players, aswang_limit):
     
     # initialize roles
     roles = ['mangangaso', 'aswang', 'babaylan', 'manghuhula']
-    aswang_roles = ['aswang - manduguro', 'aswang - manananggal'] # remove aswang berbalang for the mean time
-
+    aswang_roles = ['aswang - manananggal'] # remove aswang berbalang for the mean time
+    #'aswang - manduguro',
     
     for player in players:
         player.in_lobby = False
@@ -586,13 +688,15 @@ def assignRole(players, aswang_limit):
             role = random.choice(roles)
             
             # we must populate dictionary with the most important roles first before assigning taumbayan
-            if len(player_role_dict) == (len(roles) + (aswang_limit - 1)):
+            if len(player_role_dict) >= (len(roles) + (aswang_limit - 1)):
                 player.role = 'taumbayan'
                 player.save()
                 player_role_dict[f'{player.username}'] = player.role
                 break
             
             # if important role is not yet in dictionary, add it
+            # this will catch the chances where the role is aswang, if its not yet in the role dictionary, then the
+            # aswang assign logic will happen here
             if role not in player_role_dict.values() :
                 
                 if role != 'aswang':
@@ -611,6 +715,8 @@ def assignRole(players, aswang_limit):
                     player_role_dict[f'{player.username}'] = player.role
                     break
             
+            # if the aswang role is already in the dictionary and the role given is aswang
+            # as long as the count is not zero, this will run.
             elif (role == 'aswang') and count != 0:
 
                 aswang_role = random.choice(aswang_roles)
@@ -625,19 +731,33 @@ def assignRole(players, aswang_limit):
     player.save()
     
     return player_role_dict
+
+
+def getAswangPlayers(game):
     
+    aswang_players = PlayersInLobby(game.players.filter(
+        (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) &
+        Q(alive=True) & Q(eliminated_from_game=False)
+    ), many=True).data
+    
+    if not aswang_players:
+        return None
+    
+    return aswang_players
+
+
 
 def searchAswang(game):
     
     aswang_player = game.players.filter(
         (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) 
-        & Q(night_target=None)
+        & Q(turn_done=False)
     ).first()
-    
+    print('player: ', aswang_player)
     if not aswang_player:
         return None
     else:
-        return aswang_player.role
+        return aswang_player
 
 
 def searchBabaylanOrManghuhula(game):
@@ -645,10 +765,10 @@ def searchBabaylanOrManghuhula(game):
     role_babaylan = checkRoleStatus(game=game, role='babaylan')
     role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
     
-    if role_babaylan == True:
-        role = 'babaylan'
-    elif role_manghuhula == True:
-        role = 'manghuhula'
+    if role_babaylan:
+        role = role_babaylan
+    elif role_manghuhula:
+        role = role_manghuhula
     else:    
         role = None
         
@@ -659,23 +779,23 @@ def searchBabaylanOrManghuhula(game):
 # babaylan or manghuhula, whichever one is alive (can be both)
 def checkRoleStatus(game, role):
     try: 
-        alive = game.players.filter(
+        player = game.players.filter(
             Q(alive=True) & 
             Q(eliminated_from_game=False) &
             Q(role=role)
         ).first()
         
         if role == 'babaylan':
-            if alive:
-                return True
+            if player:
+                return player
             else:
-                return False
+                return None
             
         elif role == 'manghuhula':
-            if alive:
-                return True
+            if player:
+                return player
             else:
-                return False
+                return None
             
         else:
             return None
