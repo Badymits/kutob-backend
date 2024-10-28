@@ -45,6 +45,7 @@ class Player(models.Model):
     role                     = models.CharField(max_length=255,default='', blank=True)
     in_game                  = models.BooleanField(default=False, blank=True)
     in_lobby                 = models.BooleanField(default=False, blank=True)
+    turn_done                = models.BooleanField(default=False, blank=True)
     
     # fields related to mangangaso
     is_protected             = models.BooleanField(default=False, null=True, blank=True)
@@ -65,13 +66,7 @@ class Player(models.Model):
     # voting related fields
     vote_target              = models.ForeignKey('self', null=True, blank=True, related_name='voted_player', on_delete=models.SET_NULL) 
     eliminated_from_game     = models.BooleanField(default=False, null=True, blank=True)
-    
-    
-    def cast_vote(self):
-        # if self.target:
-            
-        #     selected_target = False
-        pass
+
     
     def __str__(self):
         return self.username
