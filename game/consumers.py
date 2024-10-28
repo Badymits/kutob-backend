@@ -7,6 +7,8 @@ from game.models import Game, Player
 from game.serializers import PlayersInLobby
 from game.tasks import phaseInitialize
 
+from channels.exceptions import StopConsumer
+
 
 class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     
@@ -63,6 +65,7 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
                 "data": data
             }
         )
+        raise StopConsumer()
     
     async def send_update_message(self, event):
         await self.send_json(event['data'])
