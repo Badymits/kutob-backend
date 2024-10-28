@@ -161,7 +161,7 @@ def phaseInitialize(code):
         # serialize the player list then send to frontend
         current_players = PlayersInLobby(new_players_state_list, many=True).data
         
-        
+
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
             {
@@ -213,6 +213,16 @@ def phaseInitialize(code):
                 'data': data
             }
         )
+        async_to_sync(channel_layer.group_send)(
+            f'{mangangaso.username}_{code}',
+            {
+                'type': 'send_message',
+                'data': {
+                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'player': mangangaso.username,
+                }
+            }
+        )
         
         # send update phase to frontend to select target of users
         async_to_sync(channel_layer.group_send)(
@@ -243,13 +253,12 @@ def phaseInitialize(code):
 
         current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         
+        aswang_player_count = game.players.filter(
+            Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')
+        ).count()
+        
         # the player list should consist of only aswang
-        if current_players.filter(
-                Q(role='aswang - manduguro') | 
-                Q(role='aswang - manananggal') | 
-                Q(role='aswang - berbalang')
-            ).exists():
-
+        if aswang_player_count != 0:
             game.winners = 'Mga Aswang'
             
             phase = 8
@@ -463,7 +472,7 @@ def phaseInitialize(code):
                 
             else:
                 
-                if player_eliminated.role == 'aswang - manduguro' or player.role == 'aswang - manananggal' or player.role == 'aswang - berbalang':
+                if player_eliminated.role == 'aswang - manduguro' or player_eliminated.role == 'aswang - manananggal' or player_eliminated.role == 'aswang - berbalang':
                 
                     if aswang_player_count >=1:
                         message = f'The player eliminated IS the aswang, there are {aswang_player_count} remaining, the game continues...'
@@ -647,6 +656,7 @@ def refreshPlayerState(players):
                 
             player.night_target = None
             player.vote_target = None
+            player.turn_done = False
             
             player.save()
             new_player_list.append(player)
