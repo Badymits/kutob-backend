@@ -45,9 +45,9 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         """
         self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
         
-        if self.game is True:
+        if not self.game:
             pass
-        
+         
         # send message to frontend notifying users who left and updating player list to change UI
         self.players = await self.getPlayersInLobby(self.group_code)
         data = {
@@ -94,8 +94,7 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         
         try:
             self.players = await self.getPlayersInLobby(self.group_code)
-            print(self.players)
-        except:
+        except Exception as e:
             self.players = []
             
             
@@ -140,12 +139,19 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     def userDisconnectInGame(self, code, user):
         
         try:
-            game = Game.objects.get(room_code=code)
-            player = Player.objects.get(username=user)
+            game = get_object_or_404(Game, room_code=code)
+            
+        except Game.DoesNotExist:
+            return False
+        
+        player = Player.objects.get(username=user)
+        if player.in_game and not game.has_ended:
+            
             game.players.remove(player)
-            print(game)
+            game.save()
+
+            # end the game
             if game.players.count() < game.room_limit and game.has_started and not game.has_ended:
-                
                 player.in_lobby = False
                 player.in_game = False
                 
@@ -156,13 +162,6 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
                 game.save()
                 phaseInitialize.delay(code=code)
                 return True
-            else:
-                print("true because we're still in lobby")
-                pass
-        except ValueError:
-            print('Could not find game')
+        else:
             return False
-        
-    
 
-    
