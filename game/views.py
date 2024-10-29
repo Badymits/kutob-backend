@@ -15,7 +15,7 @@ import math
 import random
 from datetime import datetime, timedelta
 
-# creates a code for the room in FE
+
 def createCode(length):
     
     result = ''
@@ -405,8 +405,11 @@ def selectTarget(request):
     
     role = roleTargetProcess(role=role, player=player, game=game, target=target, code=code)
     
+    if role == 'No role':
+        context['aswang_message'] = 'Cannot select fellow aswang as target'
+        return Response(context, status=400)
     
-    if role is not None:
+    elif role is not None:
         # next player with major role to select target
         data = {
             'type': 'update_roleTurn',
@@ -483,6 +486,11 @@ def roleTargetProcess(role, player, game, target, code):
         
         # mark the player to eliminate
         player_obj = target
+        if player_obj.role == 'aswang - manduguro' or player_obj.role == 'aswang - manananggal' or player_obj.role == 'aswang - berbalang':
+            
+            role = 'No role'
+            return role
+        
         player_obj.night_target = True
         player_obj.save()
         
@@ -524,6 +532,11 @@ def roleTargetProcess(role, player, game, target, code):
     
     elif role == 'aswang - manananggal':
         
+        if target.role == 'aswang - manduguro' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
+            
+            role = 'No role'
+            return role
+
         
         if target.is_protected == False:
             
@@ -581,6 +594,13 @@ def roleTargetProcess(role, player, game, target, code):
 
         
     elif role == 'aswang - berbalang':
+        
+        if target.role == 'aswang - manduguro' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
+            
+            role = 'No role'
+            return role
+
+        
         # can only eliminate unprotected players
         if target.is_protected == False:
             player_obj = target
@@ -751,7 +771,7 @@ def searchAswang(game):
     
     aswang_player = game.players.filter(
         (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) 
-        & Q(turn_done=False)
+        & Q(turn_done=False) & Q(eliminated_from_game=False)
     ).first()
     print('player: ', aswang_player)
     if not aswang_player:
