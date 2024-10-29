@@ -175,7 +175,12 @@ def phaseInitialize(code):
         
         # this happens immediately whereas the view 'selectTarget' only happens when there is a request from the frontend
         mangangaso = game.players.filter(role='mangangaso').first()
-        next_role = searchAswangRole(game)
+        next_role = searchAswangRole(game) # returns obj
+        
+        aswang_players = PlayersInLobby(game.players.filter(
+            (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) &
+            Q(alive=True) & Q(eliminated_from_game=False)
+        ), many=True).data
         
         # mangangaso can protect if it has the same night count (since they will be rendered ineffective for a turn by the manananggal)
         if mangangaso.night_skip == game.night_count:
@@ -187,19 +192,42 @@ def phaseInitialize(code):
             mangangaso.save()
         
         # this will only show if the aswang type is manananggal
-        if mangangaso.skip_turn == True and mangangaso.alive == True and mangangaso.eliminated_from_game == False and next_role == 'aswang - manananggal' and int(mangangaso.night_skip) != (game.night_count):
+        if mangangaso.skip_turn == True and mangangaso.alive == True and mangangaso.eliminated_from_game == False and next_role.role == 'aswang - manananggal' and int(mangangaso.night_skip) != (game.night_count):
             data = {
                 'type': 'update_roleTurn',
-                'role': next_role,
+                'role': next_role.role,
                 'mangangaso_message' :'You are rendered ineffective during this night by the aswang, you cannot protect anyone'
             }
+            async_to_sync(channel_layer.group_send)(
+                f'{next_role.username}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target',
+                        'player': next_role.username,
+                        'aswang_players': aswang_players
+                    }
+                }
+            )
+            
             
         
         elif mangangaso.alive == False or mangangaso.eliminated_from_game == True:
             data = {
                 'type': 'update_roleTurn',
-                'role': next_role,
+                'role': next_role.role,
             }
+            async_to_sync(channel_layer.group_send)(
+                f'{next_role.username}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target',
+                        'player': next_role.username,
+                        'aswang_players': aswang_players
+                    }
+                }
+            )
         else:
             data = {
                 'type': 'update_roleTurn',
@@ -218,7 +246,7 @@ def phaseInitialize(code):
             {
                 'type': 'send_message',
                 'data': {
-                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'type': 'player_select_target',
                     'player': mangangaso.username,
                 }
             }
@@ -258,7 +286,11 @@ def phaseInitialize(code):
         ).count()
         
         # the player list should consist of only aswang
-        if aswang_player_count != 0:
+        if aswang_player_count != 0 and current_players.filter(
+                    ~Q(role='aswang - manduguro') | 
+                    ~Q(role='aswang - manananggal') | 
+                    ~Q(role='aswang - berbalang')
+                    ).count() == 0:
             game.winners = 'Mga Aswang'
             
             phase = 8
@@ -326,10 +358,11 @@ def phaseInitialize(code):
         
         if eliminated_players > 0 and revived_players == 0:
             
-            player = game.players.filter(eliminated_on_night=game.night_count).first()
-            playerSerialized  = PlayerSerializer(player).data
+            players = game.players.filter(eliminated_on_night=game.night_count)
+            playersSerialized  = PlayersInLobby(players, many=True).data
+            
             if eliminated_players > 1:
-                message = f'There were {eliminated_players} vitims during the night'
+                message = f'There were {eliminated_players} victims during the night'
             else:
                 message = f'There was {eliminated_players} victim during the night'
                 
@@ -340,7 +373,7 @@ def phaseInitialize(code):
                     'data': {
                         'type': 'announce',
                         'player_count': eliminated_players,
-                        'player': playerSerialized,
+                        'players': playersSerialized,
                         'message': message
                     }
                 }
@@ -430,9 +463,7 @@ def phaseInitialize(code):
     # voting result phase, players will know if they eliminated the right player
     elif phase == 8:
 
-        aswang_player_count = game.players.filter(
-            Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')
-        ).count()
+        
         players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
         
         vote_list = []
@@ -451,14 +482,20 @@ def phaseInitialize(code):
             player_eliminated.eliminated_from_game = True
             player_eliminated.save()
             
+            
             current_players = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
             
+            aswang_player_count = game.players.filter(
+                (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang'))
+                & Q(eliminated_from_game=False)
+            ).count()
+            
             # if aswang players are the only players left in the game, send to last phase
-            if int(current_players.count()) == 1 and current_players.filter(
-                    Q(role='aswang - manduguro') | 
-                    Q(role='aswang - manananggal') | 
-                    Q(role='aswang - berbalang')
-                    ).exists():
+            if aswang_player_count >=1 and current_players.filter(
+                    ~Q(role='aswang - manduguro') | 
+                    ~Q(role='aswang - manananggal') | 
+                    ~Q(role='aswang - berbalang')
+                    ).count() == 0:
                 # send to last phase, announcement shit:
                 game.winners = 'Mga Aswang'
                 
@@ -472,10 +509,11 @@ def phaseInitialize(code):
                 
             else:
                 
+                
                 if player_eliminated.role == 'aswang - manduguro' or player_eliminated.role == 'aswang - manananggal' or player_eliminated.role == 'aswang - berbalang':
                 
                     if aswang_player_count >=1:
-                        message = f'The player eliminated IS the aswang, there are {aswang_player_count} remaining, the game continues...'
+                        message = f"The player eliminated IS the aswang, there's {aswang_player_count} remaining, the game continues..."
                         
                     else:
                         message = f'The player eliminated IS the aswang, there are {aswang_player_count} remaining, taumbayan wins!'
@@ -674,11 +712,11 @@ def searchAswangRole(game):
     
     aswang_player = game.players.filter(
         (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) 
-        & Q(night_target=None)
+        & Q(night_target=None) & Q(eliminated_from_game=False)
     ).first()
     
     if not aswang_player:
         return None
     else:
-        return aswang_player.role
+        return aswang_player
 
