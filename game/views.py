@@ -153,6 +153,7 @@ def leaveRoom(request):
             player.is_protected = False
             player.skip_turn = False
             player.night_skip = 0
+            player.can_execute = False
             player.night_target = False
             player.turn_done = False
             
@@ -409,6 +410,10 @@ def selectTarget(request):
         context['aswang_message'] = 'Cannot select fellow aswang as target'
         return Response(context, status=400)
     
+    elif role == 'No role mangangaso':
+        context['mangangaso_message'] = 'Cannot select yourself as target'
+        return Response(context, status=400)
+    
     elif role is not None:
         # next player with major role to select target
         data = {
@@ -461,12 +466,23 @@ def roleTargetProcess(role, player, game, target, code):
     channel_layer = get_channel_layer()
     
     if role == 'mangangaso':
+        
         next_role = searchAswang(game=game)
         aswang_players = getAswangPlayers(game=game)
         
-        target.is_protected = True
-        target.save()
-        role = next_role.role
+        if not player.can_execute: # player refers to self
+
+            target.is_protected = True
+            target.save()
+            role = next_role.role
+        else:
+            if target.username == player.username:
+                role = 'No role mangangaso'
+                return role   
+            
+            target.night_target = True
+            target.save()
+            role = next_role.role
 
         
         async_to_sync(channel_layer.group_send)(
@@ -516,18 +532,19 @@ def roleTargetProcess(role, player, game, target, code):
                 next_player = get_role.username
             else:
                 role = None
-            
-        async_to_sync(channel_layer.group_send)(
-            f'{next_player}_{code}',
-            {
-                'type': 'send_message',
-                'data': {
-                    'type': 'player_select_target', # helps with multiple aswang during target select
-                    'player': next_player,
-                    'aswang_players': aswang_players
+        
+        if role is not None:
+            async_to_sync(channel_layer.group_send)(
+                f'{next_player}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target', # helps with multiple aswang during target select
+                        'player': next_player,
+                        'aswang_players': aswang_players
+                    }
                 }
-            }
-        )
+            )
         
     
     elif role == 'aswang - manananggal':
@@ -579,18 +596,19 @@ def roleTargetProcess(role, player, game, target, code):
                 next_player = get_role.username
             else:
                 role = None
-            
-        async_to_sync(channel_layer.group_send)(
-            f'{next_player}_{code}',
-            {
-                'type': 'send_message',
-                'data': {
-                    'type': 'player_select_target', # helps with multiple aswang during target select
-                    'player': next_player,
-                    'aswang_players': aswang_players
+        
+        if role is not None:    
+            async_to_sync(channel_layer.group_send)(
+                f'{next_player}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target', # helps with multiple aswang during target select
+                        'player': next_player,
+                        'aswang_players': aswang_players
+                    }
                 }
-            }
-        )
+            )
 
         
     elif role == 'aswang - berbalang':
@@ -625,18 +643,18 @@ def roleTargetProcess(role, player, game, target, code):
             else:
                 role = None
             
-        
-        async_to_sync(channel_layer.group_send)(
-            f'{next_player}_{code}',
-            {
-                'type': 'send_message',
-                'data': {
-                    'type': 'player_select_target', # helps with multiple aswang during target select
-                    'player': next_player,
-                    'aswang_players': aswang_players
+        if role is not None:
+            async_to_sync(channel_layer.group_send)(
+                f'{next_player}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target', # helps with multiple aswang during target select
+                        'player': next_player,
+                        'aswang_players': aswang_players
+                    }
                 }
-            }
-        )
+            )
         
 
     elif role == 'babaylan':
@@ -756,8 +774,7 @@ def assignRole(players, aswang_limit):
 def getAswangPlayers(game):
     
     aswang_players = PlayersInLobby(game.players.filter(
-        (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) &
-        Q(alive=True) & Q(eliminated_from_game=False)
+        Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False)
     ), many=True).data
     
     if not aswang_players:
@@ -769,11 +786,7 @@ def getAswangPlayers(game):
 
 def searchAswang(game):
     
-    aswang_player = game.players.filter(
-        (Q(role='aswang - manduguro') | Q(role='aswang - manananggal') | Q(role='aswang - berbalang')) 
-        & Q(turn_done=False) & Q(eliminated_from_game=False)
-    ).first()
-    print('player: ', aswang_player)
+    aswang_player = game.players.filter(Q(role__startswith='aswang') & Q(turn_done=False) & Q(eliminated_from_game=False) & Q(alive=True)).first()
     if not aswang_player:
         return None
     else:
