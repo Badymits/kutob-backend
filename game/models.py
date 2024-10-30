@@ -19,10 +19,9 @@ class Game(models.Model):
     has_ended               = models.BooleanField(default=False, null=False)
     
     # game states
-    # must parse to int before saving to DB
     day_count               = models.IntegerField(default=0, null=True, blank=True)
     night_count             = models.IntegerField(default=0, null=True, blank=True)
-    cycle                   = models.IntegerField(default=1, null=True, blank=True)
+    cycle                   = models.IntegerField(default=0, null=True, blank=True)
     game_phase              = models.IntegerField(default=1, null=True, blank=True)
     
     # dates
@@ -31,10 +30,7 @@ class Game(models.Model):
     
     def __str__(self):
         return f'room {self.room_code}'
-    
-    @staticmethod
-    def get_past_games(self):
-        pass
+
     
 
 class Player(models.Model):
