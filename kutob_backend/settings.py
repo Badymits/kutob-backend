@@ -96,6 +96,9 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BROKER_URL = 'redis://localhost:6379'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'  # or your specific cache alias
+# SESSION_COOKIE_SECURE = True
 
 CELERY_BEAT_SCHEDULE = {
     'delete_inactive_users': {
