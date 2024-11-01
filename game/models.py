@@ -36,6 +36,7 @@ class Game(models.Model):
 class Player(models.Model):
     
     username                 = models.CharField(max_length=255,default='', blank=True, unique=True)
+    avatar                   = models.CharField(max_length=255, default='taumbayan_tatay', blank=True, null=True)
     alive                    = models.BooleanField(default=True)
     game                     = models.ManyToManyField(Game, related_name='games', blank=True) # switch to many to many field
     role                     = models.CharField(max_length=255,default='', blank=True)
