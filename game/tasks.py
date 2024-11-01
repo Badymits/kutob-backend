@@ -199,8 +199,8 @@ def phaseInitialize(code):
         
         
         
-        # this will only show if the aswang type is manananggal
-        if mangangaso.skip_turn == True and mangangaso.alive == True and mangangaso.eliminated_from_game == False and next_role.role == 'aswang - manananggal' and int(mangangaso.night_skip) != (game.night_count):
+        # this will only show if the game has aswang type is manananggal
+        if mangangaso.skip_turn == True and mangangaso.alive == True and mangangaso.eliminated_from_game == False and int(mangangaso.night_skip) != (game.night_count):
             
             data = {
                 'type': 'update_roleTurn',
@@ -545,7 +545,7 @@ def phaseInitialize(code):
             else:
                 
                 
-                if player_eliminated.role == 'aswang - manduguro' or player_eliminated.role == 'aswang - manananggal' or player_eliminated.role == 'aswang - berbalang':
+                if player_eliminated.role == 'aswang - mandurugo' or player_eliminated.role == 'aswang - manananggal' or player_eliminated.role == 'aswang - berbalang':
                 
                     if aswang_player_count >=1:
                         message = f"The player eliminated IS the aswang. there's {aswang_player_count} remaining. the game continues..."
@@ -649,7 +649,7 @@ def phaseInitialize(code):
     
     # applies to phase 2, 4, and 6 that doesn't require any data
     else:
-        if phase == 4 and (game.day_count % 5 == 0 and game.cycle != 0):
+        if phase == 4 and (game.day_count % 4 == 0 and game.cycle != 0):
             mangangaso = game.players.filter(Q(role='mangangaso') & Q(alive=True) & Q(eliminated_from_game=False)).first()
             if mangangaso:
                 async_to_sync(channel_layer.group_send)(
