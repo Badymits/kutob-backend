@@ -45,10 +45,10 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         """
         end the game if user disconnects while it is still ongoing
         """
-        self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
+        #self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
         
-        if not self.game:
-            pass
+        # if not self.game:
+        #     pass
          
         # send message to frontend notifying users who left and updating player list to change UI
         self.players = await self.getPlayersInLobby(self.group_code)
