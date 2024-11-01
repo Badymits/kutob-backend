@@ -498,11 +498,11 @@ def roleTargetProcess(role, player, game, target, code):
         )
         
     
-    elif role == 'aswang - manduguro':
+    elif role == 'aswang - mandurugo':
         
         # mark the player to eliminate
         player_obj = target
-        if player_obj.role == 'aswang - manduguro' or player_obj.role == 'aswang - manananggal' or player_obj.role == 'aswang - berbalang':
+        if player_obj.role == 'aswang - mandurugo' or player_obj.role == 'aswang - manananggal' or player_obj.role == 'aswang - berbalang':
             
             role = 'No role'
             return role
@@ -549,7 +549,7 @@ def roleTargetProcess(role, player, game, target, code):
     
     elif role == 'aswang - manananggal':
         
-        if target.role == 'aswang - manduguro' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
+        if target.role == 'aswang - mandurugo' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
             
             role = 'No role'
             return role
@@ -613,7 +613,7 @@ def roleTargetProcess(role, player, game, target, code):
         
     elif role == 'aswang - berbalang':
         
-        if target.role == 'aswang - manduguro' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
+        if target.role == 'aswang - mandurugo' or target.role == 'aswang - manananggal' or target.role == 'aswang - berbalang':
             
             role = 'No role'
             return role
@@ -700,7 +700,7 @@ def roleTargetProcess(role, player, game, target, code):
     return role
 
 
-def assignRole(players, aswang_limit):
+def assignRole(players, aswang_limit): # order of players are shuffled
     
     """
     :10 players and 3 aswang == 6 important figures (mangangaso, babaylan, manghuhula, 3 aswang) 
@@ -715,8 +715,8 @@ def assignRole(players, aswang_limit):
     
     # initialize roles
     roles = ['mangangaso', 'aswang', 'babaylan', 'manghuhula']
-    aswang_roles = ['aswang - manananggal'] # remove aswang berbalang for the mean time
-    #'aswang - manduguro',
+    aswang_roles = ['aswang - mandurugo', 'aswang - manananggal', 'aswang - berbalang'] 
+    #'aswang - mandurugo'
     
     for player in players:
         player.in_lobby = False
