@@ -14,6 +14,7 @@ from django.core.cache import cache
 import math
 import random
 from datetime import datetime, timedelta
+from itertools import chain
 
 
 def createCode(length):
@@ -104,8 +105,10 @@ def joinRoom(request):
                 user.in_lobby = True
                 user.save()
                 # retrieve all players in the room
-                players = game.players.all().values_list('username', flat=True)
-                
+                player_username = game.players.all().values_list('username', flat=True)
+                player_avatar = game.players.all().values_list('avatar', flat=True)
+                players = chain(player_username, player_avatar)
+                print(players)
                 
                 context['players'] = players
                 context['player_count'] = game.room_limit
