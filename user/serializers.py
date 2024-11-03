@@ -6,4 +6,4 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Player
-        fields = ['username']
+        fields = ['username', 'avatar']
