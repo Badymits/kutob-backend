@@ -2,6 +2,7 @@ import json
 from django.shortcuts import get_object_or_404
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from asgiref.sync import sync_to_async, async_to_sync
+from django.db.models import Q
 
 from game.models import Game, Player
 from game.serializers import PlayersInLobby
@@ -131,7 +132,10 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         
         try:
             game = Game.objects.get(room_code=code)
-            playerList = PlayersInLobby(game.players.all(), many=True).data
+            playerList = PlayersInLobby(game.players.filter(
+                Q(alive=True) & Q(eliminated_from_game=False)
+            ), many=True).data
+        
         except:
            playerList = [] 
         
