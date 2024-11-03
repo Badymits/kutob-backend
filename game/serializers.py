@@ -13,8 +13,8 @@ class GameSerializer(serializers.ModelSerializer):
 class PlayersInLobby(serializers.ModelSerializer):
     
     class Meta:
-        model = User
-        fields = ('username',)
+        model = Player
+        fields = ('username', 'avatar',)
         
         
 class PlayerSerializer(serializers.ModelSerializer):
