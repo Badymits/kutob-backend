@@ -155,7 +155,7 @@ def phaseInitialize(code):
     # the player select target phase, if mangangaso is not alive, then the aswang will be the first player to select their target
     if phase == 3:
         
-        player_list = game.players.all()
+        player_list = game.players.filter(Q(alive=True) & Q(eliminated_from_game=False))
     
         new_players_state_list = refreshPlayerState(player_list)
         
