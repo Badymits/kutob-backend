@@ -7,7 +7,7 @@ from django.db.models import Q
 
 from .models import Game, Player
 from .serializers import GameSerializer
-from game.serializers import PlayersInLobby 
+from game.serializers import PlayersInLobby, PlayerVoteSerializer
 from .tasks import send_role, phaseCountdown, phaseInitialize
 from django.core.cache import cache
 
@@ -105,10 +105,10 @@ def joinRoom(request):
                 user.in_lobby = True
                 user.save()
                 # retrieve all players in the room
-                player_username = game.players.all().values_list('username', flat=True)
-                player_avatar = game.players.all().values_list('avatar', flat=True)
-                players = chain(player_username, player_avatar)
-                print(players)
+                # player_username = game.players.all().values_list('username', flat=True)
+                # player_avatar = game.players.all().values_list('avatar', flat=True)
+                players = PlayersInLobby(game.players.all(), many=True).data
+                
                 
                 context['players'] = players
                 context['player_count'] = game.room_limit
@@ -445,11 +445,13 @@ def selectTarget(request):
 def votePlayer(request):
     
     context = {}
+    channel_layer = get_channel_layer()
+    code = request.data.get('code')
     
     try:
         player_that_voted = get_object_or_404(Player, username=request.data['player'])
         vote_target = get_object_or_404(Player, username=request.data['vote_target'])
-        
+        game = get_object_or_404(Game, room_code=code)
         
     except Exception as e:
         print(f'error {e}')
@@ -459,6 +461,24 @@ def votePlayer(request):
     # assign vote target
     player_that_voted.vote_target = vote_target
     player_that_voted.save()
+    
+    # only get players that have voted
+    votes = PlayerVoteSerializer(game.players.filter(
+        Q(alive=True) & Q(eliminated_from_game=False) & ~Q(vote_target=None)
+    ), many=True).data
+    
+    # send votes to frontend for icons of who voted for which user
+    async_to_sync(channel_layer.group_send)(
+        f'room_{code}',
+        {
+            'type': 'send_message',
+            'data': {
+                'type': 'update_votes',
+                'votes': votes
+            }
+        }
+    )
+    
             
     context['message'] = 'Nice vote!'
     return Response(context, status=201)
@@ -471,7 +491,7 @@ def roleTargetProcess(role, player, game, target, code):
     if role == 'mangangaso':
         
         next_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game)
+        aswang_players = getAswangPlayers(game=game, player=next_role)
         
         if not player.can_execute: # player refers to self
 
@@ -523,7 +543,7 @@ def roleTargetProcess(role, player, game, target, code):
         player.save()
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game)
+        aswang_players = getAswangPlayers(game=game, player=player)
 
         if aswang_role:
             role = aswang_role.role
@@ -544,7 +564,7 @@ def roleTargetProcess(role, player, game, target, code):
                     'data': {
                         'type': 'player_select_target', # helps with multiple aswang during target select
                         'player': next_player,
-                        'aswang_players': aswang_players
+                        'aswang_players': aswang_players if role == 'aswang - mandurugo' or role == 'aswang - manananggal' or role == 'aswang - berbalang' else None
                     }
                 }
             )
@@ -586,7 +606,7 @@ def roleTargetProcess(role, player, game, target, code):
         """
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game)
+        aswang_players = getAswangPlayers(game=game, player=player)
         
         if aswang_role:
             
@@ -608,7 +628,7 @@ def roleTargetProcess(role, player, game, target, code):
                     'data': {
                         'type': 'player_select_target', # helps with multiple aswang during target select
                         'player': next_player,
-                        'aswang_players': aswang_players
+                        'aswang_players': aswang_players if role == 'aswang - mandurugo' or role == 'aswang - manananggal' or role == 'aswang - berbalang' else None
                     }
                 }
             )
@@ -632,7 +652,7 @@ def roleTargetProcess(role, player, game, target, code):
         player.save()
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game)
+        aswang_players = getAswangPlayers(game=game, player=player)
         
         if aswang_role:
             
@@ -654,7 +674,7 @@ def roleTargetProcess(role, player, game, target, code):
                     'data': {
                         'type': 'player_select_target', # helps with multiple aswang during target select
                         'player': next_player,
-                        'aswang_players': aswang_players
+                        'aswang_players':aswang_players if role == 'aswang - mandurugo' or role == 'aswang - manananggal' or role == 'aswang - berbalang' else None
                     }
                 }
             )
@@ -774,10 +794,10 @@ def assignRole(players, aswang_limit): # order of players are shuffled
     return player_role_dict
 
 
-def getAswangPlayers(game):
+def getAswangPlayers(game, player):
     
     aswang_players = PlayersInLobby(game.players.filter(
-        Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False)
+        Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False) 
     ), many=True).data
     
     if not aswang_players:
