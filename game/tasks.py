@@ -662,6 +662,19 @@ def phaseInitialize(code):
                         }
                     }
                 )
+        if phase == 6:
+            current_players = PlayersInLobby(game.players.filter(Q(alive=True) & Q(eliminated_from_game=False)), many=True).data
+        
+            async_to_sync(channel_layer.group_send)(
+                f'room_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'alive_players_list',
+                        'player_list': current_players
+                    }
+                }
+            )
         async_to_sync(channel_layer.group_send)(
             f'room_{code}',
             {
