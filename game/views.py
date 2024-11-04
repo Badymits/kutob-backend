@@ -348,8 +348,16 @@ def startGameSession(request):
         context['message'] = 'Game not found'
         return Response(context, status=400)
     
+    
+    ready_players = checkIfPlayersReady(game)
+    
+    if not ready_players:
+        context['message'] = 'Players not yet ready'
+        return Response(context, status=400)    
+    
+    
     # change player and game status
-    if game:
+    if game and ready_players:
         game.has_started = True
         game.room_state = 'IN_GAME'
         players = game.players.all().order_by('?')
@@ -387,7 +395,15 @@ def startGameSession(request):
     else:
         context['message'] = 'Game not found'
         return Response(context, status=400)
+
+
+def checkIfPlayersReady(game):
     
+    for player in game.players.all():
+        if not player.is_ready:
+            return False
+    
+    return True
     
     
 @api_view(['POST'])
