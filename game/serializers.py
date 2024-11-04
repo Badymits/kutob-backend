@@ -16,12 +16,20 @@ class PlayersInLobby(serializers.ModelSerializer):
         model = Player
         fields = ('username', 'avatar',)
         
-        
+     
 class PlayerSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Player
         fields = ('username', )
+        
+class PlayerVoteSerializer(serializers.ModelSerializer):
+    
+    vote_target = PlayerSerializer(read_only=True)
+    
+    class Meta:
+        model = Player
+        fields = ('username', 'avatar', 'vote_target', )
         
 
 class WinnersSerializer(serializers.ModelSerializer):
