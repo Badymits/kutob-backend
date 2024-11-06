@@ -38,6 +38,70 @@ def send_role(player,code,role):
     )
 
 @shared_task
+def checkDisconnectedRole(user, code):
+    
+    try:
+        player = get_object_or_404(Player, username=user)
+        game = get_object_or_404(Game, room_code=code)
+    except Exception as e:
+        
+        print(f'Error: {e}')
+        return None
+    
+    if game.game_phase == 3:
+        
+        if player.role == 'mangangaso':
+            next_role = searchAswangRole(game=game) # returns obj
+            
+            aswang_players = PlayersInLobby(game.players.filter(
+                Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False)
+            ), many=True).data
+            
+            async_to_sync(channel_layer.group_send)(
+                f'{next_role.username}_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': 'player_select_target',
+                        'player': next_role.username,
+                        'aswang_players': aswang_players
+                    }
+                }
+            )
+            
+        elif player.role == 'aswang - mandurugo':
+            aswang_role = searchAswangRole(game=game)
+            aswang_players = getAswangPlayers(game=game, player=player)
+            
+            if aswang_role:
+                role = aswang_role.role
+                next_player = aswang_role.username
+            else:
+                get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
+                if get_role:
+                    role = get_role.role
+                    next_player = get_role.username
+                else:
+                    role = None
+            
+            if role is not None:
+                async_to_sync(channel_layer.group_send)(
+                    f'{next_player}_{code}',
+                    {
+                        'type': 'send_message',
+                        'data': {
+                            'type': 'player_select_target', # helps with multiple aswang during target select
+                            'player': next_player,
+                            'aswang_players': aswang_players if role == 'aswang - mandurugo' or role == 'aswang - manananggal' or role == 'aswang - berbalang' else None
+                        }
+                    }
+                )
+                #return True
+        else:
+            return None # ?? tama ba toh ??  
+    
+
+@shared_task
 def countdown_timer(code, duration):
     
     #redis_timer = redis_client.get(f'game_{code}_timer')
@@ -780,3 +844,57 @@ def searchAswangRole(game):
     else:
         return aswang_player
 
+
+def getAswangPlayers(game):
+    
+    aswang_players = PlayersInLobby(game.players.filter(
+        Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False) 
+    ), many=True).data
+    
+    if not aswang_players:
+        return None
+    
+    return aswang_players
+
+def searchBabaylanOrManghuhula(game):
+    
+    role_babaylan = checkRoleStatus(game=game, role='babaylan')
+    role_manghuhula = checkRoleStatus(game=game, role='manghuhula')
+    
+    if role_babaylan:
+        role = role_babaylan
+    elif role_manghuhula:
+        role = role_manghuhula
+    else:    
+        role = None
+        
+    return role
+
+
+# checks the alive players' role, since after aswang its either 
+# babaylan or manghuhula, whichever one is alive (can be both)
+def checkRoleStatus(game, role):
+    try: 
+        player = game.players.filter(
+            Q(alive=True) & 
+            Q(eliminated_from_game=False) &
+            Q(role=role)
+        ).first()
+        
+        if role == 'babaylan':
+            if player:
+                return player
+            else:
+                return None
+            
+        elif role == 'manghuhula':
+            if player:
+                return player
+            else:
+                return None
+            
+        else:
+            return None
+    except Exception as e:
+        print(f'error {e}')
+        return None
