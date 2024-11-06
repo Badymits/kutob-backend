@@ -6,7 +6,8 @@ from django.db.models import Q
 
 from game.models import Game, Player
 from game.serializers import PlayersInLobby
-from game.tasks import phaseInitialize
+from game.tasks import checkDisconnectedRole
+from game.services import get_player_status, set_player_connected, set_player_disconnected
 
 from channels.exceptions import StopConsumer
 
@@ -15,8 +16,12 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     
     async def connect(self):
         
-        self.group_code = self.scope.get("url_route").get("kwargs").get("code")  # from routing url parameter
-        self.user = self.scope.get("url_route").get("kwargs").get("username") # username is unique
+        try:
+            self.group_code = self.scope.get("url_route").get("kwargs").get("code")  # from routing url parameter
+            self.user = self.scope.get("url_route").get("kwargs").get("username") # username is unique
+        except Exception as e:
+            print(f'Error: {e}')
+            
         
         # create unique group
         self.room_code = f'room_{self.group_code}'
@@ -24,49 +29,71 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
         # unique group with one player only, used for role reveal and role UI
         self.player_room_code = f'{self.user}_{self.group_code}'
         
+        try:
+            player_status = await get_player_status(self.user, self.group_code)
+        except Exception as e:
+            print(f'Error: {e}')
+            return None
         
-        await self.channel_layer.group_add(
-            self.room_code,
-            self.channel_name # this will be created automatically for each user
-        )
-        
-        await self.channel_layer.group_add(
-            self.player_room_code,
-            self.channel_name    
-        )
+            
+        if player_status == "disconnected":
+            # Player is reconnecting after a refresh, do not remove them from the game
+            await set_player_connected(self.user, self.group_code)
+        else:
+            # New connection or a proper disconnect
+            await self.channel_layer.group_add(
+                self.room_code,
+                self.channel_name # this will be created automatically for each user
+            )
+            
+            await self.channel_layer.group_add(
+                self.player_room_code,
+                self.channel_name    
+            )
 
-        await self.accept()
+            await self.accept()
+        
+        # Send the message on connect (e.g., player joining)
         await self._send_message_on_connect()
+        
+        
     
     async def disconnect(self, code):
-        
-        await self.channel_layer.group_discard(self.room_code, self.channel_name)
-        await self.channel_layer.group_discard(self.player_room_code, self.channel_name)
-        
         """
-        end the game if user disconnects while it is still ongoing
+        end the game if user disconnects (leaves the game completely not refreshin) while it is still ongoing
         """
-        #self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
         
-        # if not self.game:
-        #     pass
-         
-        # send message to frontend notifying users who left and updating player list to change UI
-        self.players = await self.getPlayersInLobby(self.group_code)
-        data = {
-                    "type": "update_player_list",
-                    "message": f'{self.user} left the lobby',
-                    "sender": "SERVER",
-                    "players": self.players
-                }
-        await self.channel_layer.group_send(
-            self.room_code,
-            {
-                "type": "send_message",
-                "data": data
-            }
-        )
-        raise StopConsumer()
+        self.player_status = await get_player_status(username=self.user, code=self.group_code)
+        self.game = await self.userDisconnectInGame(code=self.group_code, user=self.user)
+        
+        if self.player_status == 'disconnected':
+            await set_player_disconnected(self.user, self.group_code)
+            
+        else:
+            if self.game:
+                await self.channel_layer.group_discard(self.room_code, self.channel_name)
+                await self.channel_layer.group_discard(self.player_room_code, self.channel_name)
+                
+                await checkDisconnectedRole(user=self.user, code=self.group_code)
+                
+                # notify other users who left and updating player list to change UI
+                self.players = await self.getPlayersInLobby(self.group_code)
+                data = {
+                            "type": "update_player_list",
+                            "message": f'{self.user} left the lobby',
+                            "sender": "SERVER",
+                            "players": self.players
+                        }
+                await self.channel_layer.group_send(
+                    self.room_code,
+                    {
+                        "type": "send_message",
+                        "data": data
+                    }
+                )
+                raise StopConsumer()
+            else:
+                pass
     
     async def send_update_message(self, event):
         await self.send_json(event['data'])
@@ -145,6 +172,7 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     @sync_to_async
     def userDisconnectInGame(self, code, user):
         
+        player_status = get_player_status(username=user, code=code)
         try:
             game = get_object_or_404(Game, room_code=code)
             
@@ -152,23 +180,12 @@ class GameRoomConsumer(AsyncJsonWebsocketConsumer):
             return False
         
         player = Player.objects.get(username=user)
-        if player.in_game and not game.has_ended:
+        if player.in_game and not game.has_ended and player_status == 'connected':
             
             game.players.remove(player)
             game.save()
-
-            # end the game
-            if game.players.count() < game.room_limit and game.has_started and not game.has_ended:
-                player.in_lobby = False
-                player.in_game = False
-                
-                player.save()
-                
-                game.game_phase = 8
-                game.winners = 'Mga Taumbayan'
-                game.save()
-                phaseInitialize.delay(code=code)
-                return True
+            return True
+            
         else:
             return False
 
