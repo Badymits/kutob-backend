@@ -8,6 +8,7 @@ from django.db.models import Q
 from .models import Game, Player
 from .serializers import GameSerializer
 from game.serializers import PlayersInLobby, PlayerVoteSerializer
+from game.services import set_player_connected
 from .tasks import send_role, phaseCountdown, phaseInitialize
 from django.core.cache import cache
 
@@ -52,6 +53,9 @@ def createRoom(request):
                 owner=user,
                 room_code=room_code
             )
+            
+            # add user to redis to keep track of player status: Connected or Disconnected
+            set_player_connected(username=user.username, code=room_code)
             
             game.players.add(user)
             user.game.add(game)
@@ -98,6 +102,10 @@ def joinRoom(request):
         
         # users cannot enter if the room is already at the player limit count
         if int(game.room_limit) > game.players.all().count():
+            
+            if game.has_ended == True:
+                context['message'] = 'Cannot join room that has already ended'
+                return Response(context, status=400)
             
             if game is not None and user is not None:
                 game.players.add(user)
@@ -349,15 +357,15 @@ def startGameSession(request):
         return Response(context, status=400)
     
     
-    ready_players = checkIfPlayersReady(game)
+    #ready_players = checkIfPlayersReady(game)
     
-    if not ready_players:
-        context['message'] = 'Players not yet ready'
-        return Response(context, status=400)    
+    # if not ready_players:
+    #     context['message'] = 'Players not yet ready'
+    #     return Response(context, status=400)    
     
     
     # change player and game status
-    if game and ready_players:
+    if game:
         game.has_started = True
         game.room_state = 'IN_GAME'
         players = game.players.all().order_by('?')
@@ -810,7 +818,7 @@ def assignRole(players, aswang_limit): # order of players are shuffled
     return player_role_dict
 
 
-def getAswangPlayers(game, player):
+def getAswangPlayers(game):
     
     aswang_players = PlayersInLobby(game.players.filter(
         Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False) 
