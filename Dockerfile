@@ -1,5 +1,13 @@
 FROM python:3.11.2-alpine
 
+# Set build arguments for Git information
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+# Set labels for metadata
+LABEL git_commit=$GIT_COMMIT
+LABEL build_date=$BUILD_DATE
+
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
