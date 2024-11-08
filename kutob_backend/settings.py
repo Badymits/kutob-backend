@@ -103,7 +103,7 @@ SESSION_CACHE_ALIAS = 'default'  # or your specific cache alias
 CELERY_BEAT_SCHEDULE = {
     'delete_inactive_users': {
         'task': "game.tasks.delete_inactive_players",
-        "schedule": crontab(minute='*/5') # Execute every 5 mins.
+        "schedule": crontab(minute='*/10') # Execute every 10 mins.
     }
 }
 
