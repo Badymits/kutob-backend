@@ -21,7 +21,7 @@ class PlayerSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Player
-        fields = ('username', )
+        fields = ('username', 'avatar', )
         
 class PlayerVoteSerializer(serializers.ModelSerializer):
     
