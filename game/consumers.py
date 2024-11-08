@@ -1,16 +1,15 @@
 import json
-from django.shortcuts import get_object_or_404
-from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from asgiref.sync import sync_to_async, async_to_sync
+from django.shortcuts import get_object_or_404
 from django.db.models import Q
 
 from game.models import Game, Player
 from game.serializers import PlayersInLobby
 from game.tasks import checkDisconnectedRole
-from game.services import get_player_status, set_player_connected, set_player_disconnected
+from game.services import get_player_status, set_player_connected, set_player_disconnected, get_player_status_non_sync
 
 from channels.exceptions import StopConsumer
-
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 class GameRoomConsumer(AsyncJsonWebsocketConsumer):
     
