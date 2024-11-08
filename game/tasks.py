@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from .models import Game, Player
 from .serializers import PlayersInLobby, PlayerSerializer, WinnersSerializer
+from .services import get_game_turn, set_game_turn
 
 import redis
 
@@ -41,22 +42,36 @@ def send_role(player,code,role):
 def checkDisconnectedRole(user, code):
     
     try:
-        player = get_object_or_404(Player, username=user)
+        player = get_object_or_404(Player, username=user) # get disconnected user
         game = get_object_or_404(Game, room_code=code)
     except Exception as e:
         
         print(f'Error: {e}')
         return None
     
+    current_turn = get_game_turn(code=code)
+    if current_turn is not None:
+        current_turn = current_turn.decode('utf-8')
+    
     if game.game_phase == 3:
         
-        if player.role == 'mangangaso':
+        
+        if player.role == 'mangangaso' and player.role == current_turn:
             next_role = searchAswangRole(game=game) # returns obj
             
             aswang_players = PlayersInLobby(game.players.filter(
                 Q(role__startswith='aswang') & Q(alive=True) & Q(eliminated_from_game=False)
             ), many=True).data
+
+            # in the event where mangangaso and aswang disconnects, end the game
+            if not aswang_players  and not next_role :
+                game.game_phase = 4
+                game.save()
+                
+                phaseInitialize.apply_async(args=[code])
+                return  True
             
+            set_game_turn(code=code, role_turn=next_role.role)
             async_to_sync(channel_layer.group_send)(
                 f'{next_role.username}_{code}',
                 {
@@ -69,9 +84,33 @@ def checkDisconnectedRole(user, code):
                 }
             )
             
-        elif player.role == 'aswang - mandurugo':
+            async_to_sync(channel_layer.group_send)(
+                f'room_{code}',
+                {
+                    'type': 'send_message',
+                    'data': {
+                        'type': ''
+                    }
+                }
+            )
+            
+            data = {
+                'type': 'update_roleTurn',
+                'role': next_role.role,
+            }
+            
+            async_to_sync(channel_layer.group_send)(
+                f'room_{code}',
+                {
+                    'type': 'send_message',
+                    'data': data
+                }
+            )
+            return True
+            
+        elif player.role in ['aswang - mandurugo', 'aswang - manananggal', 'aswang - berbalang'] and current_turn in ['aswang - mandurugo', 'aswang - manananggal', 'aswang - berbalang']:
             aswang_role = searchAswangRole(game=game)
-            aswang_players = getAswangPlayers(game=game, player=player)
+            aswang_players = getAswangPlayers(game=game)
             
             if aswang_role:
                 role = aswang_role.role
@@ -85,6 +124,7 @@ def checkDisconnectedRole(user, code):
                     role = None
             
             if role is not None:
+                set_game_turn(code=code, role_turn=role)
                 async_to_sync(channel_layer.group_send)(
                     f'{next_player}_{code}',
                     {
@@ -96,9 +136,81 @@ def checkDisconnectedRole(user, code):
                         }
                     }
                 )
-                #return True
+                data = {
+                    'type': 'update_roleTurn',
+                    'role': role,
+                }
+                
+                async_to_sync(channel_layer.group_send)(
+                    f'room_{code}',
+                    {
+                        'type': 'send_message',
+                        'data': data
+                    }
+                )
+                
+                return True
+                
+            else:
+                # game ends if there is no more roles after disconnected aswang
+                game.game_phase = 4
+                game.save()
+                
+                
+                phaseInitialize.apply_async(args=[code])
+                return True
+            
+            
+        elif player.role == 'babaylan' and player.role == current_turn:
+            role_manghuhula = checkRoleStatus(game=game, role='manghuhula') # returns player obj
+
+            if role_manghuhula:
+                role = role_manghuhula.role
+                next_player = role_manghuhula.username
+                set_game_turn(code=code, role_turn=role)
+                async_to_sync(channel_layer.group_send)(
+                    f'{next_player}_{code}',
+                    {
+                        'type': 'send_message',
+                        'data': {
+                            'type': 'player_select_target', 
+                            'player': next_player,
+                        }
+                    }
+                )
+                data = {
+                    'type': 'update_roleTurn',
+                    'role': role,
+                }
+                
+                async_to_sync(channel_layer.group_send)(
+                    f'room_{code}',
+                    {
+                        'type': 'send_message',
+                        'data': data
+                    }
+                )
+                return True
+            else:
+                game.game_phase = 4
+                game.save()
+                
+                phaseInitialize.apply_async(args=[code])
+                return True
+            
+        elif player.role == 'manghuhula' and player.role == current_turn:
+            
+            game.game_phase = 4
+            game.save()
+            
+            phaseInitialize.apply_async(args=[code])
+            return True
+        
         else:
-            return None # ?? tama ba toh ??  
+            return True
+        
+    else:
+        return True # ?? tama ba toh ??  
     
 
 @shared_task
@@ -212,10 +324,15 @@ def phaseCountdown(code):
 @shared_task
 def phaseInitialize(code):
 
-    game = Game.objects.get(room_code=code)
+    try:
+        game = Game.objects.get(room_code=code)
+    except Exception as e:
+        print(f'Error {e}')
+        return True
+    
+    
     phase = int(game.game_phase) + 1
 
-        
     # the player select target phase, if mangangaso is not alive, then the aswang will be the first player to select their target
     if phase == 3:
         
@@ -655,6 +772,12 @@ def phaseInitialize(code):
                 }
             }
         )
+        mangangaso = game.players.filter(Q(role='mangangaso') & Q(alive=True) & Q(eliminated_from_game=False)).first()
+        if mangangaso:
+            set_game_turn(code=code, role_turn='mangangaso')
+        else:
+            role = searchAswangRole(game=game)
+            set_game_turn(code=code, role_turn=role.role)
         game.game_phase = phase
         game.save()
         phaseCountdown.delay(code)
@@ -882,6 +1005,16 @@ def checkRoleStatus(game, role):
         ).first()
         
         if role == 'babaylan':
+            if player:
+                return player
+            else:
+                return None
+        elif role == 'mangangaso':
+            if player:
+                return player
+            else:
+                return None
+        elif role in ['aswang - mandurugo', 'aswang - manananggal', 'aswang - berbalang']:
             if player:
                 return player
             else:
