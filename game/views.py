@@ -7,8 +7,8 @@ from django.db.models import Q
 
 from .models import Game, Player
 from .serializers import GameSerializer
-from game.serializers import PlayersInLobby, PlayerVoteSerializer
-from game.services import set_player_connected
+from game.serializers import PlayersInLobby, PlayerVoteSerializer, PlayerSerializer
+from game.services import set_player_connected_non_sync, set_player_disconnected_non_sync, set_game_turn
 from .tasks import send_role, phaseCountdown, phaseInitialize
 from django.core.cache import cache
 
@@ -55,7 +55,7 @@ def createRoom(request):
             )
             
             # add user to redis to keep track of player status: Connected or Disconnected
-            set_player_connected(username=user.username, code=room_code)
+            #set_player_connected_non_sync(username=user.username, code=room_code)
             
             game.players.add(user)
             user.game.add(game)
@@ -112,9 +112,10 @@ def joinRoom(request):
                 user.game.add(game)
                 user.in_lobby = True
                 user.save()
-                # retrieve all players in the room
-                # player_username = game.players.all().values_list('username', flat=True)
-                # player_avatar = game.players.all().values_list('avatar', flat=True)
+                
+                # add user to redis to keep track of player status: Connected or Disconnected
+                #set_player_connected_non_sync(username=user.username, code=code)
+
                 players = PlayersInLobby(game.players.all(), many=True).data
                 
                 
@@ -140,6 +141,8 @@ def joinRoom(request):
 def leaveRoom(request):
     
     context = {}
+    
+    channel_layer = get_channel_layer()
     
     player = Player.objects.get(username=request.data['player'])
     code = request.data['code']
@@ -178,6 +181,26 @@ def leaveRoom(request):
             player.in_lobby = False
             player.save() 
             
+            if game.owner == player:
+                random_player = getRandomPlayerInRoom(game=game)
+                #set_player_disconnected_non_sync(username=random_player.username, code=code)
+                if random_player is not None:
+                    player = PlayerSerializer(random_player).data
+                    print(player.get('username'))
+                    async_to_sync(channel_layer.group_send)(
+                        f'room_{code}',
+                        {
+                            'type': 'send_message',
+                            'data': {
+                                'type': 'update_room_owner',
+                                'player': player,
+                                "message": f'{player.get("username")} is the new Room Owner',
+                                "sender": "SERVER",
+                            }
+                        }
+                    )
+                else:
+                    pass
             
             context['message'] = 'Left the room'
             
@@ -192,7 +215,22 @@ def leaveRoom(request):
         context['message'] = 'Game does not exist'
         return Response(context)
     
+
+def getRandomPlayerInRoom(game):
     
+
+    player_list = list(game.players.all())
+    print(player_list)
+    if len(player_list) != 0:
+        player = random.choice(player_list)
+        
+        game.owner = player
+        game.save()
+        
+        return player
+    else:
+        return None
+
     
 @api_view(['PATCH'])
 def updateRoomSettings(request):
@@ -348,6 +386,9 @@ def startGameSession(request):
     code = request.data['code']
     channel_layer = get_channel_layer()
     
+    # set turn to mangangaso
+    set_game_turn(code=code, role_turn='mangangaso')
+    
     try: 
         game = Game.objects.get(room_code=code)
         
@@ -441,6 +482,10 @@ def selectTarget(request):
         context['mangangaso_message'] = 'Cannot select yourself as target'
         return Response(context, status=400)
     
+    elif role == 'None': # a different none
+        context['message'] = 'No aswang detected. Must be a connection problem'
+        return Response(context, status=400)
+        
     elif role is not None:
         # next player with major role to select target
         data = {
@@ -515,7 +560,8 @@ def roleTargetProcess(role, player, game, target, code):
     if role == 'mangangaso':
         
         next_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game, player=next_role)
+        aswang_players = getAswangPlayers(game=game)
+        
         
         if not player.can_execute: # player refers to self
 
@@ -530,8 +576,19 @@ def roleTargetProcess(role, player, game, target, code):
             target.night_target = True
             target.save()
             role = next_role.role
+            
+        # end the game since there is no point in continuing the game when there is no aswang left
+        if next_role is None and not aswang_players:
+            game.game_phase = 4
+            game.save()
+            set_game_turn(code=code, role_turn='mangangaso')
+            phaseInitialize.apply_async(args=[code])
+            
+            # a different None type since the keyword None
+            role = 'None' 
+            return role
 
-        
+        set_game_turn(code=code, role_turn=next_role.role)
         async_to_sync(channel_layer.group_send)(
             f'{next_role.username}_{code}',
             {
@@ -549,7 +606,7 @@ def roleTargetProcess(role, player, game, target, code):
         
         # mark the player to eliminate
         player_obj = target
-        if player_obj.role == 'aswang - mandurugo' or player_obj.role == 'aswang - manananggal' or player_obj.role == 'aswang - berbalang':
+        if player_obj.role in ['aswang - mandurugo', 'aswang - manananggal', 'aswang - berbalang']:
             
             role = 'No role'
             return role
@@ -567,7 +624,7 @@ def roleTargetProcess(role, player, game, target, code):
         player.save()
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game, player=player)
+        aswang_players = getAswangPlayers(game=game)
 
         if aswang_role:
             role = aswang_role.role
@@ -577,10 +634,12 @@ def roleTargetProcess(role, player, game, target, code):
             if get_role:
                 role = get_role.role
                 next_player = get_role.username
+                
             else:
                 role = None
         
         if role is not None:
+            set_game_turn(code=code, role_turn=role)
             async_to_sync(channel_layer.group_send)(
                 f'{next_player}_{code}',
                 {
@@ -630,12 +689,13 @@ def roleTargetProcess(role, player, game, target, code):
         """
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game, player=player)
+        aswang_players = getAswangPlayers(game=game)
         
         if aswang_role:
             
             role = aswang_role.role
             next_player = aswang_role.username
+            
         else: 
             get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
             if get_role:
@@ -645,6 +705,7 @@ def roleTargetProcess(role, player, game, target, code):
                 role = None
         
         if role is not None:    
+            set_game_turn(code=code, role_turn=role)
             async_to_sync(channel_layer.group_send)(
                 f'{next_player}_{code}',
                 {
@@ -656,7 +717,7 @@ def roleTargetProcess(role, player, game, target, code):
                     }
                 }
             )
-
+        #redis_client.set
         
     elif role == 'aswang - berbalang':
         
@@ -664,7 +725,7 @@ def roleTargetProcess(role, player, game, target, code):
             
             role = 'No role'
             return role
-
+        #redis_client.set
         
         # can only eliminate unprotected players
         if target.is_protected == False:
@@ -676,12 +737,13 @@ def roleTargetProcess(role, player, game, target, code):
         player.save()
         
         aswang_role = searchAswang(game=game)
-        aswang_players = getAswangPlayers(game=game, player=player)
+        aswang_players = getAswangPlayers(game=game)
         
         if aswang_role:
             
             role = aswang_role.role
             next_player = aswang_role.username
+            set_game_turn(code=code, role_turn=role)
         else: 
             get_role = searchBabaylanOrManghuhula(game=game) # returns player obj
             if get_role:
@@ -713,16 +775,19 @@ def roleTargetProcess(role, player, game, target, code):
             player_obj.save()
             
         role_manghuhula = checkRoleStatus(game=game, role='manghuhula') # returns player obj
-        
+        #redis_client.set
         if role_manghuhula:
             role = role_manghuhula.role
             next_player = role_manghuhula.username
+            
+            set_game_turn(code=code, role_turn=role)
+            
             async_to_sync(channel_layer.group_send)(
             f'{next_player}_{code}',
             {
                 'type': 'send_message',
                 'data': {
-                    'type': 'player_select_target', # helps with multiple aswang during target select
+                    'type': 'player_select_target', 
                     'player': next_player,
                 }
             }
@@ -732,6 +797,9 @@ def roleTargetProcess(role, player, game, target, code):
 
     elif role == 'manghuhula':
         role_of_target = target.role
+        
+        set_game_turn(code=code, role_turn=role)
+        
         async_to_sync(channel_layer.group_send)(
             f'{player.username}_{code}',
             {
@@ -743,7 +811,7 @@ def roleTargetProcess(role, player, game, target, code):
             }
         )
         role = None
-        
+        #redis_client.set
     return role
 
 
