@@ -11,6 +11,15 @@ LABEL build_date=$BUILD_DATE
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
+# Set timezone
+ENV TZ=Asia/Manila
+
+# Install tzdata
+RUN apk add --no-cache tzdata
+
+# Set timezone
+RUN cp /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 WORKDIR /app
 
 # Install system dependencies
