@@ -96,6 +96,7 @@ ASGI_APPLICATION = 'kutob_backend.asgi.application'
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BROKER_URL = 'redis://localhost:6379'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TIMEZONE = 'Asia/Manila'
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'  # or your specific cache alias
@@ -211,7 +212,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/manila'
+TIME_ZONE = 'Asia/Manila'
 
 USE_I18N = True
 USE_L10N = True
@@ -220,6 +221,8 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
+
+STATIC_ROOT = None
 
 STATIC_URL = 'static/'
 
