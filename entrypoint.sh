@@ -2,6 +2,7 @@
 
 python manage.py makemigrations
 python manage.py migrate --no-input
+python manage.py collectstaticfiles --no-input
 
 # Start Gunicorn
 echo "Starting Gunicorn..."
