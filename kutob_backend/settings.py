@@ -32,7 +32,8 @@ ALLOWED_HOSTS = []
 CORS_ORIGIN_WHITELIST = [
     'http://localhost',
     "http://127.0.0.1",
-    "http://0.0.0.0"
+    "http://0.0.0.0",
+    "https://kutob-front-end.vercel.app"
 ]
 CSRF_COOKIE_NAME = "XSRF-TOKEN"
 
@@ -136,8 +137,6 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }
-
-
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
