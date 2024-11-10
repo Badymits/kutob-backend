@@ -30,6 +30,9 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy the supervisor configuration file
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
 # Optionally, you can directly install gevent via pip here if it's not in your requirements.txt
 RUN pip install gevent
 
