@@ -1,7 +1,22 @@
-.git
-.gitignore
-node_modules
+# Ignore Python bytecode files
 __pycache__
 *.pyc
-.env
+*.pyo
+
+# Ignore virtual environments
+venv
+env
+*.env
+
+# Ignore local Dockerfile or image files
+Dockerfile*
+.dockerignore
+
+# Ignore version control files (e.g., Git)
+.git
+.gitignore
+
+# Ignore logs, build artifacts, and temporary files
 *.log
+*.bak
+*.swp
