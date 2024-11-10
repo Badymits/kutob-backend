@@ -1,32 +1,34 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Dockerfile for Django, Daphne, Celery, and Celery Beat
 
-# Set environment variables
-ENV PYTHONUNBUFFERED 1
-ENV LANG C.UTF-8
+# Base image with Python
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies (for example, for psycopg2 or Redis)
+# Install dependencies
+COPY requirements.txt /app/
+RUN pip install -r requirements.txt
+
+# Copy the application code
+COPY . /app/
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV DJANGO_SETTINGS_MODULE=kutob_backend.settings
+ENV CELERY_BROKER_URL=redis://redis:6379/0
+ENV CELERY_RESULT_BACKEND=redis://redis:6379/0
+ENV CELERY_TIMEZONE=Asia/Manila
+
+# Install system dependencies (if needed for things like `gevent`, `psycopg2`, etc.)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
+    libev-dev  \ 
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file first to leverage Docker caching
-COPY requirements.txt /app/
+# Optionally, you can directly install gevent via pip here if it's not in your requirements.txt
+RUN pip install gevent
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the application code into the container
-COPY . /app/
-
-# Expose ports
-# Django backend will typically run on 8000, Daphne on 8001, and Celery doesn't need a port
-EXPOSE 8000
-EXPOSE 8001
-
-# Default command - this can be overridden based on the service
-CMD ["gunicorn", "--workers", "4", "--timeout", "120", "kutob_backend.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Expose the necessary ports (for Django, Daphne, Celery)
+EXPOSE 8000 8001
