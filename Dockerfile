@@ -23,6 +23,7 @@ ENV CELERY_TIMEZONE=Asia/Manila
 # Install system dependencies (if needed for things like `gevent`, `psycopg2`, etc.)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    gcc \
     libpq-dev \
     libev-dev  \ 
     && rm -rf /var/lib/apt/lists/*
