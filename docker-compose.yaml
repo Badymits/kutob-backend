@@ -1,0 +1,88 @@
+
+
+services:
+    backend:
+     # Django Web service
+      build:
+        context: "./"
+        dockerfile: Dockerfile
+        args:
+        - GIT_COMMIT=$(git rev-parse --short HEAD)
+        - BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+      command: gunicorn --workers 4 --timeout 120 kutob_backend.wsgi:application --bind 0.0.0.0:8080 
+      volumes:
+        - "./kutob_backend/:/app"
+      ports:
+        - "8000:8000"  # Publish port 8000 on host machine
+      environment:
+        - DEBUG=True
+        - REDIS_HOST=redis
+        - TZ=Asia/Manila
+        - DJANGO_SETTINGS_MODULE=kutob_backend.settings
+        - CELERY_TIMEZONE=Asia/Manila
+        - CELERY_BROKER_URL=redis://redis:6379/0
+        - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      depends_on:
+        - redis
+
+    daphne:
+      build:
+        context: "."
+      command: "daphne kutob_backend.asgi:application --host 0.0.0.0 --port 8001" # Daphne command to run ASGI application
+      ports:
+        - "8001:8001"
+      environment:
+        - DJANGO_SETTINGS_MODULE=kutob_backend.settings
+      volumes:
+        - "./kutob_backend/:/app"
+      depends_on:
+        - backend
+
+
+    # Celery worker service
+    celery:
+      build:
+        context: "."
+        dockerfile: Dockerfile
+        args:
+        - GIT_COMMIT=$(git rev-parse --short HEAD)
+        - BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+      command: celery -A kutob_backend worker -P gevent -l info --concurrency=4
+      volumes:
+        - "./kutob_backend/:/app"
+      depends_on:
+        - redis
+        - backend
+      environment:
+        - CELERY_BROKER_URL=redis://redis:6379/0
+        - CELERY_RESULT_BACKEND=redis://redis:6379/0
+        - REDIS_HOST=redis
+        - TZ=Asia/Manila
+        - CELERY_TIMEZONE=Asia/Manila
+
+    # Celery Beat (for periodic tasks)
+    celery-beat:
+      build:
+        context: "./"
+        dockerfile: Dockerfile
+      command: celery -A kutob_backend beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+      volumes:
+        - "./kutob_backend/:/app"
+      depends_on:
+        - redis
+        - backend
+      environment:
+        - CELERY_BROKER_URL=redis://redis:6379/0
+        - CELERY_RESULT_BACKEND=redis://redis:6379/0
+        - REDIS_HOST=redis
+        - TZ=Asia/Manila
+        - CELERY_TIMEZONE=Asia/Manila
+      
+
+    
+
+    # Redis service (used as the message broker for Celery)
+    redis:
+      image: redis:latest
+      ports:
+        - "6379:6379" 
