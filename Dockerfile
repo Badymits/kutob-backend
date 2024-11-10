@@ -1,45 +1,32 @@
-FROM python:3.11.2-alpine
+# Use an official Python runtime as a parent image
+FROM python:3.9-slim
 
-# Set build arguments for Git information
-ARG GIT_COMMIT=unknown
-ARG BUILD_DATE=unknown
+# Set environment variables
+ENV PYTHONUNBUFFERED 1
+ENV LANG C.UTF-8
 
-# Set labels for metadata
-LABEL git_commit=$GIT_COMMIT
-LABEL build_date=$BUILD_DATE
-
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Set timezone
-ENV TZ=Asia/Manila
-
-# Install tzdata
-RUN apk add --no-cache tzdata
-
-# Set timezone
-RUN cp /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
+# Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
-    postgresql-dev \
-    gcc \
-    python3-dev \
-    musl-dev \
-    netcat-openbsd
+# Install system dependencies (for example, for psycopg2 or Redis)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Copy the requirements file first to leverage Docker caching
+COPY requirements.txt /app/
 
-# Copy project files
-COPY . .
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy and make entrypoint executable
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+# Copy the application code into the container
+COPY . /app/
 
-ENTRYPOINT ["./entrypoint.sh"]
+# Expose ports
+# Django backend will typically run on 8000, Daphne on 8001, and Celery doesn't need a port
+EXPOSE 8000
+EXPOSE 8001
+
+# Default command - this can be overridden based on the service
+CMD ["gunicorn", "--workers", "4", "--timeout", "120", "kutob_backend.wsgi:application", "--bind", "0.0.0.0:8000"]
